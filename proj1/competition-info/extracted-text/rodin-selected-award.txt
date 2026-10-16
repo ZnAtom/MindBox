@@ -1,0 +1,79 @@
+=== Page 1 ===
+影眸科技  ·  HYPER3D
+Techathon专项奖
+Techathon 2026
+
+=== Page 2 ===
+RODIN SELECTED AWARD
+从想法到 3D 资产
+Rodin 将文字或参考图片转成带纹理、可导出的 3D 模型
+IMAGE TO 3D TEXT TO 3D
+GLB  ·  OBJ  ·  FBX  ·  USDZ  ·  STL
+
+=== Page 3 ===
+RODIN SELECTED AWARD
+Hyper3D MCP
+让 AI 编程助手
+直接调用 Rodin
+在编程对话中描述需要的 3D 资产，
+Agent 即可生成模型、查询进度，
+并获取模型下载链接。
+Codex  /  Claude Code  /  Kimi Code
+01 描述资产需求 02 Agent 调用 Rodin 03 获取模型用于项目
+
+=== Page 4 ===
+RODIN SELECTED AWARD
+参赛资源
+BUSINESS  ×  1 MONTH
+使用上海科技大学邮箱注册 Hyper3D 账号
+兑换码
+XH4KKMWUXUR2
+API
+参赛项目可获得
+Rodin API 调用支持
+API 额度与领取方式以后续说明为准
+MEMBERSHIP & API SUPPORT  /  ORGANIZER BRIEF
+
+=== Page 5 ===
+RODIN SELECTED AWARD
+Rodin Selected Award 评选标准 使用深度越高，评选偏好越高
+01 USE 3D 资产进入项目
+使用 Rodin 创建 3D 资产，并在项目中使用
+02 BUILD MCP 完成整个产品
+使用 Rodin MCP 完成整个产品
+03 CORE API 成为核心能力
+将 Rodin API 作为产品核心能力
+04 AGENT 3D Agent 构建完整项目
+通过 Hyper3D 3D Agent 构建整个项目
+综合 Rodin 使用深度与项目整体质量
+
+=== Page 6 ===
+RODIN SELECTED AWARD
+RODIN SELECTED AWARD
+总奖金池
+¥5,000
+为真正把 3D 做进产品的团队
+奖项名额与奖金分配以评选时为准
+
+=== Page 7 ===
+RODIN SELECTED AWARD
+1ST PLACE  ·  OPENAI CODEX HACKATHON
+StoryWorld
+把 3D 电影工作室
+装进口袋
+开发者用 Rodin 生成可直接投入产品的 3D 角色，
+结合 iOS ARKit、RealityKit 与 fal，在手机里完成
+空间扫描、角色布置、世界切换与镜头拍摄。
+iOS ARKit + RealityKit   /   Rodin   /   fal
+@vamonke  ·  @DeemosTech
+
+=== Page 8 ===
+RODIN SELECTED AWARD
+HYPER3D CLI  /  GAME DEVELOPMENT
+AI 海战 Roguelike
+水体模拟实验，变成可玩的 3D 游戏
+3D 创作者 @2026Redrum 使用 GPT-6、Three.js
+与 Hyper3D CLI 开发海战 Roguelike，
+并加入随机生成的世界 Boss。
+GPT-6  /  Three.js  /  Hyper3D CLI
+ 点击视频播放
