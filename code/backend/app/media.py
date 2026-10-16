@@ -14,6 +14,33 @@ from .client import write_json
 EXTENSIONS = {'.mp4', '.mov', '.mkv', '.avi', '.webm'}
 
 
+def describe_container(container):
+    streams = []
+    for stream in container.streams:
+        ctx = stream.codec_context
+        info = {'index': stream.index, 'type': stream.type,
+                'codec': ctx.name if ctx else None, 'time_base': str(stream.time_base),
+                'start_pts': stream.start_time, 'duration_pts': stream.duration}
+        if stream.type == 'video':
+            info.update(width=stream.width, height=stream.height,
+                        average_rate=str(stream.average_rate),
+                        pixel_format=ctx.format.name if ctx.format else None,
+                        rotation_metadata=stream.metadata.get('rotate'))
+        elif stream.type == 'audio':
+            info.update(sample_rate=ctx.sample_rate, layout=ctx.layout.name,
+                        channels=len(ctx.layout.channels))
+        streams.append(info)
+    return {'format': container.format.name, 'start_time_us': container.start_time,
+            'duration_us': container.duration, 'bit_rate': container.bit_rate, 'streams': streams}
+
+
+def inspect_media(path):
+    path = Path(path)
+    with av.open(str(path)) as container:
+        return {'filename': path.name, 'bytes': path.stat().st_size,
+                'container': describe_container(container)}
+
+
 def video_files(path):
     path = Path(path)
     if path.is_file():
@@ -28,6 +55,57 @@ def signature(image):
     bad_exposure = float(np.mean((gray < 12) | (gray > 245)))
     thumb = cv2.resize(gray, (32, 18)).astype(np.float32)
     return sharpness, bad_exposure, thumb
+
+
+def action_frames(path, output, fps=8, start_ms=0, end_ms=None, max_frames=480):
+    """Keep temporal coverage and the real last frame; never silently truncate."""
+    path, output = Path(path), Path(output)
+    destination = output / 'action-frames'
+    destination.mkdir(parents=True, exist_ok=True)
+    if not 1 <= fps <= 30 or start_ms < 0 or (end_ms is not None and end_ms < start_ms):
+        raise ValueError('Invalid action frame range or fps')
+    frames, last, next_ms = [], None, float(start_ms)
+
+    def save(frame, time_ms, rotation):
+        image = frame.to_image()
+        if rotation:
+            image = image.rotate(-rotation, expand=True)
+        image.thumbnail((1280, 1280))
+        frame_id = f'{path.stem}-t{frame.pts}'
+        filename = f'action-frames/{frame_id}.jpg'
+        image.save(output / filename, quality=92)
+        sharpness, exposure, _ = signature(np.asarray(image))
+        return {'id': frame_id, 'file': filename, 'model_file': filename,
+                'pts': frame.pts, 'media_time_ms': time_ms,
+                'width': image.width, 'height': image.height,
+                'quality': round(math.log1p(sharpness) - 3 * exposure, 4)}
+
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        origin = (container.start_time or 0) / av.time_base
+        rotation = int(stream.metadata.get('rotate', '0')) % 360
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            t = round((float(frame.pts * frame.time_base) - origin) * 1000)
+            if t < start_ms:
+                continue
+            if end_ms is not None and t > end_ms:
+                break
+            last = (frame, t)
+            if t < next_ms:
+                continue
+            if len(frames) >= max_frames:
+                raise ValueError('Action frame budget exceeded; split the recording into operations')
+            frames.append(save(frame, t, rotation))
+            next_ms = t + 1000 / fps
+        if last and (not frames or last[0].pts != frames[-1]['pts']):
+            if len(frames) >= max_frames:
+                raise ValueError('Action frame budget exceeded at final frame')
+            frames.append(save(last[0], last[1], rotation))
+    if not frames:
+        raise ValueError('No timestamped frames in action range')
+    return frames
 
 
 def prepare_video(path, output, max_frames=8, scan_fps=3, extract_audio=True):
@@ -49,7 +127,8 @@ def prepare_video(path, output, max_frames=8, scan_fps=3, extract_audio=True):
                 'height': stream.height, 'fps': float(stream.average_rate or 0),
                 'duration_s': float(container.duration / av.time_base) if container.duration else None,
                 'origin_pts_s': origin, 'audio_streams': len(container.streams.audio),
-                'time_base': str(stream.time_base), 'scan_fps': scan_fps}
+                'time_base': str(stream.time_base), 'scan_fps': scan_fps,
+                'container': describe_container(container)}
         next_t, previous = -math.inf, None
         for frame in container.decode(stream):
             if frame.pts is None:

@@ -1,7 +1,7 @@
 import av
 import numpy as np
 
-from app.media import prepare_video
+from app.media import action_frames, inspect_media, prepare_video
 
 
 def test_static_video_suppresses_redundancy_and_preserves_endpoints(tmp_path):
@@ -23,3 +23,11 @@ def test_static_video_suppresses_redundancy_and_preserves_endpoints(tmp_path):
     assert meta['frames'][0]['media_time_ms'] == 0
     assert meta['frames'][-1]['media_time_ms'] >= 3500
     assert len(meta['input_sha256']) == 64
+    assert meta['container']['streams'][0]['codec'] == 'mpeg4'
+    info = inspect_media(source)
+    assert info['container']['streams'][0]['width'] == 160
+    assert info['container']['streams'][0]['height'] == 120
+    assert info['container']['streams'][0]['time_base'] != 'None'
+    temporal = action_frames(source, tmp_path / 'action-out', fps=8)
+    assert len(temporal) > len(meta['frames'])
+    assert temporal[-1]['media_time_ms'] == round(47 / 12 * 1000)

@@ -1,10 +1,10 @@
-# Mind Box 视频处理实验
+# 运行离线视频处理
 
-已经实现视频→选帧→AI定位→原图裁剪→局部复核→RAG类别规范→动作候选→JSON/HTML。此处是离线实验流水线，还没有接入K230上传服务或正式库存数据库。
+流程、效果和下一步统一从[开发入口](../README.md)阅读。当前包含离线视频流水线和SQLite数据库服务层/管理命令；没有运行中的HTTP库存服务。首版暂不做重量变化。
 
 ## 环境
 
-推荐Python 3.13。Docker Desktop已安装且Linux引擎已启动；本机2026-10-16尝试Docker Hub、Google镜像缓存均在基础镜像下载阶段超时，因此**容器构建和容器内执行尚未验证**。真实视频使用隔离的`.venv`运行。
+Python 3.13；依赖固定在`requirements.lock.txt`。本地`.env`已保存学校临时Key，Git和Docker忽略该文件；新环境参考`.env.example`。学校当前可用别名为`deepseek-pro`，底层版本未披露。默认校验TLS、单并发、有限重试。
 
 ```powershell
 cd [local path hidden]
@@ -12,58 +12,93 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 ```
 
-在本地`.env`配置模型入口和密钥。`.env.example`可供新环境参考；当前`.env`已设置临时Key且被Git和Docker忽略。不要把它提交、截图或写进日志。
-
-学校接口实际可用别名是`deepseek-pro`，`deepseek-flash`对当前Key返回400“未绑定模型”。响应也只披露`deepseek-pro`，无法证明底层具体版本。TLS默认开启，单并发，最多4次尝试；连接错误、超时、408/429/5xx有限退避重试，400/401/403直接记录失败。不要用盲目重试掩盖模型绑定错误。
-
-## 运行
+## 无模型调用的检查
 
 ```powershell
-# 文本、真实图片语义、JSON、原生工具调用的独立能力探测
-.\.venv\Scripts\python.exe -m app.cli probe
+# 读容器、编码、宽高、PTS时间基、音轨采样率与声道
+.\.venv\Scripts\python.exe -m app.cli inspect-media ..\..\data
 
-# 不调用AI：解码、检查质量/变化、选帧、提取音轨
+# 从真实结果读取工具调用与持久化状态，不执行数据库写入
+.\.venv\Scripts\python.exe -m app.cli inspect-run var/runs/improved --output var/review/call-results.json
+
+# 解码、扫描选帧和提取音轨
 .\.venv\Scripts\python.exe -m app.cli prepare ..\..\data --output var/runs/prepare --max-frames 10
-
-# 调用AI：文件或整个目录；只遍历视频扩展名，不读取人工答案文档
-.\.venv\Scripts\python.exe -m app.cli batch ..\..\data --output var/runs/new-run --max-frames 10 --resume
-
-# 调用统计、失败记录、结果哈希和截图总览
-.\.venv\Scripts\python.exe -m app.cli audit var/runs/new-run
-
-# 仅从已有JSON重新生成静态报告，不调用AI
-.\.venv\Scripts\python.exe -m app.cli report var/runs/new-run
 
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-输出`var/runs/<run>/report.html`可直接在浏览器查看。每段视频包含原分辨率帧、标框图、截图、音轨、媒体时间、原始候选、复核和最终物品字段。`api-attempts.jsonl`记录每次真实调用/重试/结构修复/缓存命中；`tool-trace.json`记录工具参数与返回。缓存包括模型响应，不含请求图片或鉴权头，但包含物品识别文本，应按私人数据保管。
+`inspect-run`未传`--database`时返回`database.status=not_connected`，不推断库存为空；传数据库路径才读取真实导入状态和提交回执。历史运行JSON中的`not_implemented`保留原样。
 
-复用同一输出目录时，成功请求可命中缓存，已完成视频在输入哈希和配置一致时可跳过。更换模型、提示词或选帧参数建议使用新目录，保留对比。接口出错会保留该视频失败状态并继续下一视频；程序异常退出可用`--resume`继续。
+## 数据库
+
+使用Python自带sqlite3，无新增依赖。默认数据库为`var/mind-box.sqlite3`，截图按内容哈希归档到`var/mind-box-assets/`，两者均不提交Git。迁移SQL在`migrations/`，启动初始化会检查已应用版本的校验值。
+
+```powershell
+# 初始化：默认初始库存未知；只有实际确认空柜时才在首次建柜加 --known-empty
+.\.venv\Scripts\python.exe -m app.cli db init
+.\.venv\Scripts\python.exe -m app.cli db status
+
+# 导入已有识别结果，只存证据、候选和pending，不自动变更库存，不调用模型
+.\.venv\Scripts\python.exe -m app.cli db import-run var/runs/state-actions-v8/v8 --base-revision 0
+.\.venv\Scripts\python.exe -m app.cli db inventory --include-removed
+.\.venv\Scripts\python.exe -m app.cli db receipts
+.\.venv\Scripts\python.exe -m app.cli inspect-run var/runs/state-actions-v8 --database var/mind-box.sqlite3
+
+# 按数据约定准备明确提交计划JSON，再执行受控事务
+.\.venv\Scripts\python.exe -m app.cli db commit plan.json
+
+# 一致性备份数据库及已归档截图，目标目录必须尚不存在
+.\.venv\Scripts\python.exe -m app.cli db backup var/backups/session-01
+```
+
+其他命令：`db item <id>`、`db history <id>`、`db operation <id>`、`db resolve <run_id> --reason ... --reviewed-by ...`、`db create-item request.json`、`db correct-item request.json`、`db create-reminder request.json`、`db reminders`、`db cancel-reminder <id>`、`db trigger-reminders`。`--database`和`--cabinet`放在`db`之后、子命令之前。数据库关系图、请求样例和功能边界见[数据约定](../doc/data-contract.md)。
+
+新识别运行可在`batch`或`actions`命令末尾加`--database var/mind-box.sqlite3 --cabinet cabinet-01`，读取真实库存快照并在处理结束后保存候选；不会自动提交库存。输出目录仍应保持不可变，修改结果需新建运行目录或显式新attempt。离线素材不保证来自同一连续柜体，导入时应核对柜体与基线版本。
+
+提醒扫描、工作任务领取和回执记录已具备数据库接口；当前没有常驻调度循环、网页发送器或语音播放器。`trigger-reminders`只将到期提醒转为待投递任务，不意味着已播放。
+
+备份恢复：将备份目录中的数据库和同名`*-assets`目录放在同一父目录下，继续使用该数据库路径；可直接对备份路径运行`db --database <path> status`检查。原始视频仍为外部引用，重要录像另行备份。数据库备份使用SQLite backup API，兼容WAL，不直接复制正在写入的主文件。
+
+## 模型识别与报告
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli probe
+.\.venv\Scripts\python.exe -m app.cli batch ..\..\data --output var/runs/new-run --max-frames 10 --resume
+.\.venv\Scripts\python.exe -m app.cli audit var/runs/new-run
+.\.venv\Scripts\python.exe -m app.cli report var/runs/new-run
+```
+
+`batch`接受单个视频或目录，默认不读子目录及人工答案。更换算法/模型/提示词使用新运行目录；`--resume`复用成功请求缓存及输入/配置一致的完成结果。`report`仅重建HTML，不调用模型。
+
+输出：`report.html/summary.json/audit.json/api-attempts.jsonl`；每个视频有`media.json/frames/annotated/crops/audio.wav/detection.json/verification.json/evidence.json/tool-trace.json/result.json`。不保证每个失败阶段都有完整产物。原视频只读，结果与模型缓存属于私人素材，不提交Git。
+
+既有两轮结果在`var/runs/baseline`和`improved`，额外v8主图排序实验在`crop-rank-check`；HTML可直接打开，无需开发服务器。新代码增加容器信息和局部crop排序，不重写历史实验。
+
+## 抽屉动作回归
+
+`batch`已接入新的抽屉阶段、前后快照和分段状态流程。单独检查动作时，可复用冻结的认物结果，但仍从原视频重新取时序帧：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli actions ..\..\data --source-run var/runs/improved --output var/runs/new-actions --videos v7 v8 --resume
+.\.venv\Scripts\python.exe -m app.cli evaluate-actions var/runs/new-actions
+.\.venv\Scripts\python.exe -m app.cli inspect-run var/runs/new-actions --output var/review/action-calls.json
+```
+
+省略`--videos`会检查全部视频。输出目录必须与来源目录分开。`evaluate-actions`单独读取`datasets/action-regression.json`，该文件是根据人工答案与冻结crop标注的评测资料，识别和动作流程都不读取它。更换认物结果后需重新标注candidate ID，不可套用旧映射。
+
+新增产物为`action-media.json/action-frames/storyboards/appearance-matches.json/matched-frames/scene-plan.json/coverage-windows.json/snapshots/snapshot-states.json/window-states.json/rejected-state-claims.json/action-tool-trace.json/operation-analysis.json`。SIFT绿色框只是正向几何提示，背景可能误配，不能用匹配缺失判断取出。`consistent`只表示当前视觉观察可对账，实际是否正确仍由独立评测判定。`return`表示同一实例取出后放回，事件仍全部`committed=false`。
+
+动作证据默认8fps并保留真实末帧；预览最多20帧，拼成每页4帧并标真实时间。每约1.25秒覆盖一个短区间，并给前后各约250ms上下文，截止到合拢前快照。未知、遮挡、终态冲突保留pending；有先前已验证状态时可显式跨短时遮挡关联，时间窗可能变宽，不冒充精确抓取时刻。
 
 ## Docker
 
-网络恢复或为Docker配置可用网络后：
+Docker Linux引擎已验证；项目镜像因基础镜像下载超时尚未构建成功，真实样本在`.venv`完成。网络可用后：
 
 ```powershell
 docker compose config --quiet
 docker compose build
-docker compose run --rm processor python -m app.cli probe --output /app/var/probe
 docker compose run --rm processor python -m app.cli batch /data --output /app/var/runs/docker-test --max-frames 10 --resume
-docker compose run --rm processor python -m app.cli audit /app/var/runs/docker-test
+docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/docker-test
 ```
 
-镜像包含固定依赖和代码；`.env`只在运行时注入，视频挂载只读。没有GPU依赖。官方Google缓存可用时可显式指定`docker compose build --build-arg PYTHON_IMAGE=mirror.gcr.io/library/python:3.13-slim`；本机该入口也超时，不能声称已构建成功。
-
-## 当前边界
-
-- 检测不依赖固定YOLO类别，也没有用这8段视频训练；当前由多模态模型给框，几何合法不保证框紧贴目标。
-- 最新代码按crop区域清晰度/曝光和贴边情况挑主图；v8有单独补测记录，完整两轮保留原先视角顺序。
-- RAG首版是本地类别定义和中文字符二元组检索；不是商品数据库，也不是向量检索。人工答案`data/ans.md`不参与识别上下文。
-- `search_catalog/get_evidence/search_product_images`为受限只读工具；模型无库存写入或任意文件/网络权限。
-- 图片搜索适配器需额外`SERPAPI_API_KEY`及`MIND_BOX_WEB_SEARCH=true`，默认关闭；它是文字图片搜索，不是真正反向搜图。本次没有执行联网商品搜索。
-- 已提取音轨但未转写，未部署SAM、独立OCR或ASR。包装文字来自视觉模型，仍可能误读。品牌文字校验只能减少无依据补全，不能证明文字真实。
-- 名称、描述、大类、品牌/款式候选有证据引用；置信等级不是校准概率。重复候选只提示关联，不自动合并数量。
-- 动作仅输出带帧证据的媒体时间窗；无可信拍摄墙钟，绝对放入时间保持null，不用处理时间代替。
-
-详细设计见[流程设计](../doc/rag-tools-and-video-mvp.md)，当前待办见[TODO](../doc/video-pipeline-todo.md)，实测结果见[实测报告](../doc/video-mvp-experiment-report.md)。
+视频只读挂载，输出写`var`；Key仅运行时注入。联网商品搜索还需额外`SERPAPI_API_KEY`和`MIND_BOX_WEB_SEARCH=true`，默认不启用，不是真正反向搜图。ASR、独立OCR和分割未部署。

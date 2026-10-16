@@ -1,0 +1,16 @@
+{
+  "purpose": "Evaluation only. Never load this file in recognition or action inference.",
+  "ground_truth_source": "data/ans.md",
+  "frozen_recognition_run": "improved",
+  "mapping_note": "Candidate mappings are manual crop annotations tied to the frozen recognition run. ambiguous means mixed or duplicate crops; it cannot pass instance evaluation.",
+  "cases": {
+    "v1": {"candidates": {"obj01": "drink"}, "ordered": false, "history": [["remove", "drink"]], "net": {"drink": "remove"}},
+    "v2": {"candidates": {"obj01": "drink", "obj02": "candy", "obj03": "gluten", "obj04": "chicken"}, "ordered": false, "history": [["remove", "drink"], ["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"drink": "remove", "candy": "add", "gluten": "add", "chicken": "add"}},
+    "v3": {"candidates": {"obj01": "chicken", "obj02": "candy", "obj03": "ambiguous"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
+    "v4": {"candidates": {"obj01": "chicken", "obj02": "candy", "obj03": "gluten"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
+    "v5": {"candidates": {"obj01": "candy", "obj02": "ambiguous", "obj03": "chicken"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
+    "v6": {"candidates": {"obj01": "gluten", "obj02": "chicken", "obj03": "candy", "obj04": "gluten"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
+    "v7": {"candidates": {"obj01": "chicken", "obj02": "gluten", "obj03": "candy"}, "ordered": true, "history": [["remove", "gluten"], ["add", "candy"], ["remove", "chicken"], ["return", "gluten"]], "net": {"gluten": "kept", "chicken": "remove", "candy": "add"}},
+    "v8": {"candidates": {"obj01": "drink"}, "ordered": false, "history": [["add", "drink"]], "net": {"drink": "add"}}
+  }
+}
