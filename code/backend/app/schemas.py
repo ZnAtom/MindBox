@@ -73,7 +73,7 @@ class Normalization(BaseModel):
 
 class Event(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['add', 'remove', 'move', 'take_and_return', 'uncertain']
+    kind: Literal['add', 'remove', 'return', 'move', 'take_and_return', 'uncertain']
     candidate_ids: list[str] = Field(min_length=1, max_length=16)
     before_frame_id: str
     after_frame_id: str

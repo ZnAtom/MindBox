@@ -148,4 +148,4 @@ PPT 第 11 页：适合 C 端的优秀项目可获推荐到 AI 应用商店展�
 
 ## 9. 下一阶段
 
-你已介绍“万物无感”的物品管理构想。整理记录见 [项目想法](../project-planning/product-design/idea-brief.md)，后续顺序见 [讨论清单](../project-planning/discussion-roadmap.md)。当前仅整理，后续逐项讨论与决定，再考虑实现。
+“万物无感”的物品管理构想见[项目想法](../project-planning/product-design/idea-brief.md)；当前实现、实测结果与下一步统一见[开发入口](../../code/README.md)。

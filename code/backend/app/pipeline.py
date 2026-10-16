@@ -150,13 +150,14 @@ def normalize(client, items, toolbox, output):
     return normalized, mode
 
 
-def process(path, output, client, max_frames, resume=False):
+def process(path, output, client, max_frames, resume=False, initial_inventory=None):
+    from .actions import analyze_operation, version_hash
     output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     file_hash = digest(path)
     prompt_hashes = {p.name: digest(p) for p in PROMPTS.glob('*.txt')}
     config_hash = hashlib.sha256(json.dumps({'model': client.settings.model, 'endpoint': client.settings.api_url,
-        'pipeline_version': 3, 'max_frames': max_frames, 'prompts': prompt_hashes, 'catalog': digest(ROOT / 'knowledge/catalog.json')}, sort_keys=True).encode()).hexdigest()
+        'pipeline_version': 4, 'inventory_context': initial_inventory, 'actions_hash': version_hash(), 'max_frames': max_frames, 'prompts': prompt_hashes, 'catalog': digest(ROOT / 'knowledge/catalog.json')}, sort_keys=True).encode()).hexdigest()
     result_path = output / 'result.json'
     if resume and result_path.exists():
         previous = json.loads(result_path.read_text(encoding='utf-8'))
@@ -170,6 +171,8 @@ def process(path, output, client, max_frames, resume=False):
               'limitations': ['candidate identities, not committed inventory', 'no ASR transcript',
                               'no calibrated probabilities', 'no verified capture wall-clock anchor',
                               'no reverse image search']}
+    if initial_inventory is not None:
+        result['inventory_context'] = initial_inventory
     try:
         media_path = output / 'media.json'
         if media_path.exists():
@@ -252,23 +255,13 @@ def process(path, output, client, max_frames, resume=False):
             result['possible_duplicate_links'] = possible_duplicates(result['items'], evidence)
             if result['items']:
                 try:
-                    event_parts = [{'type': 'text', 'text': json.dumps({'candidates': [
-                        {k: i[k] for k in ('candidate_id', 'name', 'category', 'description')}
-                        for i in result['items']]}, ensure_ascii=False)}] + parts
-
-                    events = structured(client, [{'role': 'system', 'content': prompt('events')},
-                        {'role': 'user', 'content': event_parts}], 'events_' + path.stem, Events,
-                        lambda value: validate_events(value, frames, {i['candidate_id'] for i in result['items']}), max_tokens=3200)
-                    result['event_candidates'] = []
-                    for e in events.events:
-                        event = e.model_dump()
-                        event.update(event_window_ms=[frames[e.before_frame_id]['media_time_ms'],
-                            frames[e.after_frame_id]['media_time_ms']], committed=False, stored_at=None,
-                            certainty='estimated', source='vision')
-                        result['event_candidates'].append(event)
-                    result['event_uncertainties'] = events.uncertainties
+                    analysis = analyze_operation(path, output, client, result, structured, initial_inventory=initial_inventory)
+                    result['operation_analysis'] = analysis
+                    result['event_candidates'] = analysis['event_candidates']
+                    result['event_uncertainties'] = analysis['pending']
                 except (APIError, ValueError) as exc:
-                    result['errors'].append('Optional event stage: ' + client.safe(exc))
+                    result['operation_analysis'] = {'status': 'failed'}
+                    result['errors'].append('Action stage: ' + client.safe(exc))
         result['uncertainties'] = detected.uncertainties
         result['status'] = 'completed'
     except (APIError, ValueError, OSError) as exc:
@@ -295,21 +288,35 @@ def render_report(results, output):
         errors = ''.join(f'<p class="error">{esc(e)}</p>' for e in result['errors'])
         event_rows = ''.join(f'<tr><td>{esc(e["kind"])}</td><td>{esc(", ".join(e["candidate_ids"]))}</td><td>{e["event_window_ms"][0] / 1000:.3f}–{e["event_window_ms"][1] / 1000:.3f}s</td><td>{esc(e["explanation"])}</td></tr>' for e in result.get('event_candidates', []))
         event_table = f'<h3>动作候选 · 待核实</h3><div class="table-scroll"><table><thead><tr><th>动作</th><th>候选ID</th><th>媒体时间窗</th><th>依据与疑点</th></tr></thead><tbody>{event_rows}</tbody></table></div>' if event_rows else '<p>未生成动作候选。</p>'
+        if result.get('operation_analysis'):
+            operation = result['operation_analysis']
+            event_table += '<h3>前后状态与动作核对 · ' + esc(operation['status']) + '</h3><pre>' + esc(json.dumps(
+                {k: operation.get(k) for k in ('net_changes', 'pending', 'database')}, ensure_ascii=False, indent=2)) + '</pre>'
+            for label in ('before', 'after'):
+                if (output / stem / 'snapshots' / (label + '.jpg')).exists():
+                    event_table += f'<a href="{esc(stem)}/snapshots/{label}.jpg">{label} 箱内快照</a> '
+            event_table += f'<p><a href="{esc(stem)}/operation-analysis.json">动作核对JSON</a> · <a href="{esc(stem)}/action-tool-trace.json">证据工具调用</a></p>'
         sections.append(f'<section><h2>{esc(result["video"])} · {esc(result["status"])} · {result.get("elapsed_s", 0)}s</h2><a href="{esc(stem)}/contact-sheet.jpg"><img class="sheet" src="{esc(stem)}/contact-sheet.jpg" alt="contact sheet"></a>{errors}<div class="items">{"".join(items)}</div>{event_table}<p><a href="{esc(stem)}/result.json">物品JSON</a> · <a href="{esc(stem)}/evidence.json">截图证据</a> · <a href="{esc(stem)}/media.json">时间和选帧</a></p></section>')
     page = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mind Box 视频实测</title><style>
 body{font:15px/1.6 system-ui,sans-serif;margin:0;color:#172326;background:#fff}header,section{padding:24px max(20px,calc((100% - 1200px)/2));border-bottom:1px solid #ccc}h1{font-size:26px}h2{font-size:21px}h3{font-size:18px}img.sheet{width:100%;height:auto}.items{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));gap:24px}article{min-width:0}pre{font:13px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.crops{display:flex;gap:8px;min-height:250px}.crops figure{flex:1;min-width:0;margin:0}.crops img{width:100%;height:220px;object-fit:contain;background:#eee}figcaption{font-size:12px;overflow-wrap:anywhere}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;min-width:540px}th,td{padding:8px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}td:nth-child(3){white-space:nowrap}.error{color:#b52424}a{color:#08716d}</style><header><h1>Mind Box · 视频实测</h1><p>物品观察候选；时间、库存数量和品牌未知时留空。high / medium / low 表示证据强度。</p></header>'''
     (output / 'report.html').write_text(page + ''.join(sections) + '</html>', encoding='utf-8')
 
 
-def batch(input_path, output, max_frames=8, resume=False, model=None):
+def batch(input_path, output, max_frames=8, resume=False, model=None, database=None, cabinet_id='cabinet-01'):
     output = Path(output)
     settings = Settings.load()
     if model:
         settings.model = model
     client = Client(settings, output)
+    if database is not None:
+        from .store import Store
+        store = Store(database)
     results = []
     for path in video_files(input_path):
-        results.append(process(path, output / path.stem, client, max_frames, resume))
+        snapshot = store.get_inventory_snapshot(cabinet_id) if database is not None else None
+        results.append(process(path, output / path.stem, client, max_frames, resume, snapshot))
+        if database is not None:
+            store.import_run(output / path.stem, cabinet_id, base_revision=snapshot['inventory_revision'])
         write_json(output / 'summary.json', results)
         render_report(results, output)
     return results

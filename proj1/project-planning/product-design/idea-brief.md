@@ -1,6 +1,6 @@
 # Mind Box：项目简述
 
-更新：2026-10-13。总体构想原名“万物无感”，设备暂称 Mind Box。详细行动顺序见 [Roadmap](../discussion-roadmap.md)。
+更新：2026-10-16。总体构想原名“万物无感”，设备暂称 Mind Box。实现状态和下一步统一见[开发入口](../../../code/README.md)。
 
 本次能力范围见 [产品形态草案](product-concept.md)：以无遮挡单件、小批量为基础，遮挡补全和时间回推列为加分项，可不做。
 
@@ -48,4 +48,4 @@
 
 上述扩展暂不纳入 48 小时承诺。跨场景、低成本、通用识别和持续准确库存都仍是假设；药品/食品状态判断、隐私与运行成本需要按实际范围考虑。
 
-当前未确定外观与全部功能范围；实现讨论见 [技术讨论](../technical/technical-discussion.md)，用户已确认的技术信息见 [技术方案](../technical/technical-solution.md)。
+当前未确定外观与全部功能范围；软件实现见[开发入口](../../../code/README.md)，已有硬件与产品边界见[技术方案](../technical/technical-solution.md)。

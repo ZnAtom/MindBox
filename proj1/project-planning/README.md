@@ -1,16 +1,8 @@
-# Mind Box：资料索引
+# Mind Box 资料入口
 
-- **给队友先看：[mind box——无感物品存储：产品文档](product-design/mind-box-product-document.md)。** 以宿舍场景说明产品、流程和整体架构。先完成硬件，再优先自动记录与语音找物，随后补齐提醒和用户任务；技术细节在附录。
+给队友介绍产品先读[产品文档](product-design/mind-box-product-document.md)。软件当前实现、下一步待办和三个核心技术文档统一见[开发入口](../../code/README.md)，旧的平行计划和讨论记录已合并删除。
 
-以下保留早期调研和讨论记录；本轮补充与确认见产品文档附录 B。
-
-- [Roadmap](discussion-roadmap.md)：已完成、进行中与下一步。
-- [产品简述](product-design/idea-brief.md)：问题、价值与长期愿景。
-- [产品形态](product-design/product-concept.md)：用户体验、必做与可选范围。
-- [技术讨论](technical/technical-discussion.md)：候选架构、字段草案、采购与效果验证，等待你决定。
-- [已确认技术方案](technical/technical-solution.md)：只收录用户已确认的信息与方案。
-- [完整音视频处理计划](technical/video-processing-and-item-recognition-plan.md)：本轮 K230 全量上传电脑、技术基线、关键帧和真实视频实验计划。
-- [物品信息字段设计](technical/item-information-contract.md)：名称、描述、数量、放入时间和来源约束。
-- [调研问卷](dorm-survey.md) 与 `survey/`：问卷和原始走访记录。
-
-设计内容归 `product-design/`，实现内容归 `technical/`。讨论草案经你确认后再写入已确认技术方案；确认与实测通过分别标记。
+- [产品简述](product-design/idea-brief.md)、[产品形态](product-design/product-concept.md)：问题、愿景与使用边界。
+- [硬件与技术边界](technical/technical-solution.md)：已有硬件、尚未核对事项。
+- [宿舍问卷](dorm-survey.md)、[走访一](survey/1.md)、[走访二](survey/2.md)：原始需求资料。
+- [系统架构](../../system-architecture.md)、[硬件可运行性评估](../../system-assessment.md)：硬件连接、功耗和待实测边界；软件流程以开发入口为准。

@@ -30,10 +30,10 @@
 项目讨论资料放在英文文件夹 `project-planning/`：
 
 - [项目想法整理](../project-planning/product-design/idea-brief.md)
-- [讨论顺序与待办清单](../project-planning/discussion-roadmap.md)
+- [开发入口与下一步](../../code/README.md)
 - [产品形态草案](../project-planning/product-design/product-concept.md)
-- [技术讨论与字段草案](../project-planning/technical/technical-discussion.md)
+- [视频处理流程与调用](../../code/doc/processing-flow.md)
 - [已确认技术方案](../project-planning/technical/technical-solution.md)
 - [宿舍调研问卷初稿](../project-planning/dorm-survey.md)
 
-这些文件整理现有想法、后续讨论与调研问题。已有两次宿舍走访记录，分析见 Roadmap 第 1、2 项；最终方案尚未确定，也尚未开始开发。
+这些文件保留产品与调研来源。已有两次宿舍走访，电脑端已完成本地录像的离线处理实验；硬件采集上传、数据库和整机联调尚未完成，当前实测与后续任务统一见开发入口。

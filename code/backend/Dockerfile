@@ -6,6 +6,7 @@ COPY requirements.lock.txt ./
 RUN pip install --no-cache-dir -r requirements.lock.txt
 COPY app ./app
 COPY knowledge ./knowledge
+COPY migrations ./migrations
 RUN useradd --create-home worker && mkdir -p /app/var && chown -R worker:worker /app/var
 USER worker
 CMD ["python", "-m", "app.cli", "--help"]
