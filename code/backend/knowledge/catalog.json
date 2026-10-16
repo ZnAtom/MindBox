@@ -1,0 +1,8 @@
+[
+  {"id":"category-beverage","title":"饮品","content":"饮料、茶饮、瓶装水、果汁、汽水等可饮用液体归为饮品。仅凭瓶子不能证明内容物；不能从包装配色推断品牌或口味。","source":"local:category-policy-v1","status":"category_definition"},
+  {"id":"category-food","title":"食品","content":"袋装零食、糕点、熟食、糖果和其他可食用包装产品归为食品。只见背面或有遮挡时允许只输出食品或包装食品。","source":"local:category-policy-v1","status":"category_definition"},
+  {"id":"category-household","title":"日用品","content":"纸巾、清洁用品、收纳用品和其他日常非食品消费品归为日用品。容器内容不明时保留未知。","source":"local:category-policy-v1","status":"category_definition"},
+  {"id":"category-tool","title":"工具","content":"螺丝刀、剪刀和其他手工器具归为工具。品牌和具体型号需要可读文字支持。","source":"local:category-policy-v1","status":"category_definition"},
+  {"id":"category-electronics","title":"电子用品","content":"电池、充电器、线缆和电子配件归为电子用品；包装相似不代表型号相同。","source":"local:category-policy-v1","status":"category_definition"},
+  {"id":"category-unknown","title":"未知","content":"形态、文字或用途证据不足时输出未知；可描述颜色和包装，禁止强迫匹配资料库。","source":"local:category-policy-v1","status":"category_definition"}
+]

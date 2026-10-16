@@ -1,0 +1,164 @@
+"""Read original PTS, scan at bounded frequency, select quality/diversity frames."""
+from pathlib import Path
+import math
+import hashlib
+import wave
+
+import av
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw
+
+from .client import write_json
+
+EXTENSIONS = {'.mp4', '.mov', '.mkv', '.avi', '.webm'}
+
+
+def video_files(path):
+    path = Path(path)
+    if path.is_file():
+        return [path] if path.suffix.lower() in EXTENSIONS else []
+    return sorted(p for p in path.iterdir() if p.suffix.lower() in EXTENSIONS and p.is_file())
+
+
+def signature(image):
+    small = cv2.resize(image, (256, 144))
+    gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    bad_exposure = float(np.mean((gray < 12) | (gray > 245)))
+    thumb = cv2.resize(gray, (32, 18)).astype(np.float32)
+    return sharpness, bad_exposure, thumb
+
+
+def prepare_video(path, output, max_frames=8, scan_fps=3, extract_audio=True):
+    path, output = Path(path), Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    frames_dir = output / 'frames'
+    frames_dir.mkdir(exist_ok=True)
+    sha = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            sha.update(chunk)
+    candidates = []
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        # One common origin, including audio offset, not separate per-stream zeroing.
+        origin = float(container.start_time / av.time_base) if container.start_time is not None else 0.0
+        meta = {'filename': path.name, 'bytes': path.stat().st_size, 'input_sha256': sha.hexdigest(),
+                'selection_version': 2, 'requested_max_frames': max_frames, 'width': stream.width,
+                'height': stream.height, 'fps': float(stream.average_rate or 0),
+                'duration_s': float(container.duration / av.time_base) if container.duration else None,
+                'origin_pts_s': origin, 'audio_streams': len(container.streams.audio),
+                'time_base': str(stream.time_base), 'scan_fps': scan_fps}
+        next_t, previous = -math.inf, None
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            t = float(frame.pts * frame.time_base) - origin
+            if t + 1e-5 < next_t:
+                continue
+            image = frame.to_ndarray(format='rgb24')
+            # Honor display rotation when present in stream metadata.
+            rotation = int(stream.metadata.get('rotate', '0')) % 360
+            if rotation in (90, 180, 270):
+                image = np.rot90(image, -(rotation // 90)).copy()
+            sharpness, exposure, thumb = signature(image)
+            change = float(np.mean(np.abs(thumb - previous))) if previous is not None else 255.0
+            # Save scan proxies so memory stays bounded on longer recordings.
+            scan_path = frames_dir / f'scan-{len(candidates):04d}.jpg'
+            im = Image.fromarray(image)
+            im.thumbnail((1280, 1280))
+            im.save(scan_path, quality=88)
+            candidates.append({'pts': frame.pts, 'pts_s': float(frame.pts * frame.time_base),
+                               'media_time_ms': round(t * 1000), 'sharpness': round(sharpness, 2),
+                               'bad_exposure': round(exposure, 4), 'change': round(change, 2),
+                               'scan_path': str(scan_path.name),
+                               'quality': math.log1p(sharpness) - 3 * exposure})
+            previous = thumb
+            next_t = t + 1 / scan_fps
+    if not candidates:
+        raise ValueError('No timestamped video frames')
+    # Equal-time coverage; quality breaks ties within each temporal bucket.
+    end = max(c['media_time_ms'] for c in candidates) + 1
+    chosen = []
+    for i in range(max_frames):
+        bucket = [c for c in candidates if i <= c['media_time_ms'] / end * max_frames < i + 1]
+        if bucket:
+            chosen.append(max(bucket, key=lambda c: c['quality'] + min(c['change'], 30) / 30))
+    if max_frames >= 2 and len(chosen) >= 2:
+        chosen[0], chosen[-1] = candidates[0], candidates[-1]
+    # Suppress only extremely similar representatives, preserving endpoint evidence.
+    diverse, duplicate_frames = [], []
+    previous_thumb = None
+    for c in chosen:
+        image = np.asarray(Image.open(frames_dir / c['scan_path']))
+        _, _, thumb = signature(image)
+        anchor = c is chosen[0] or c is chosen[-1]
+        if previous_thumb is not None and not anchor and float(np.mean(np.abs(thumb - previous_thumb))) < 0.8:
+            duplicate_frames.append(c['pts'])
+            continue
+        diverse.append(c)
+        previous_thumb = thumb
+    chosen = diverse
+    selected = {c['pts']: c for c in chosen}
+    selected_pts = set(selected)
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        for frame in container.decode(stream):
+            if frame.pts not in selected_pts:
+                continue
+            c = selected[frame.pts]
+            im = frame.to_image()
+            rotation = int(stream.metadata.get('rotate', '0')) % 360
+            if rotation:
+                im = im.rotate(-rotation, expand=True)
+            c['id'] = f'{path.stem}-f{len([v for v in selected.values() if "id" in v]):03d}'
+            c['file'] = f'frames/{c["id"]}.jpg'
+            c['width'], c['height'] = im.size
+            im.save(output / c['file'], quality=95)
+            proxy = im.copy()
+            proxy.thumbnail((1280, 1280))
+            c['model_file'] = f'frames/{c["id"]}-model.jpg'
+            proxy.save(output / c['model_file'], quality=90)
+    frames = sorted(selected.values(), key=lambda c: c['media_time_ms'])
+    meta['candidate_count'] = len(candidates)
+    meta['duplicate_representatives_suppressed'] = duplicate_frames
+    meta['near_static_scan_pairs'] = sum(c['change'] < 2.0 for c in candidates[1:])
+    meta['frames'] = frames
+    meta['scan'] = candidates
+    if extract_audio and meta['audio_streams']:
+        audio_path = output / 'audio.wav'
+        with av.open(str(path)) as container, wave.open(str(audio_path), 'wb') as wav:
+            audio = container.streams.audio[0]
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
+            first_pts = None
+            for af in container.decode(audio):
+                if first_pts is None and af.pts is not None:
+                    first_pts = float(af.pts * af.time_base)
+                for sample in resampler.resample(af):
+                    wav.writeframes(sample.to_ndarray().tobytes())
+            for sample in resampler.resample(None):
+                wav.writeframes(sample.to_ndarray().tobytes())
+            meta['audio'] = {'file': 'audio.wav', 'sample_rate': 16000,
+                             'first_pts_s': first_pts, 'origin_pts_s': origin,
+                             'first_media_time_ms': round((first_pts - origin) * 1000) if first_pts is not None else None,
+                             'asr_status': 'not_run', 'note': 'WAV is for inspection; original audio/video remains authoritative for discontinuities.'}
+    sheet(frames, output, output / 'contact-sheet.jpg')
+    write_json(output / 'media.json', meta)
+    return meta
+
+
+def sheet(frames, root, destination):
+    width, height, cols = 360, 260, 4
+    canvas = Image.new('RGB', (width * cols, height * math.ceil(len(frames) / cols)), '#202020')
+    draw = ImageDraw.Draw(canvas)
+    for i, c in enumerate(frames):
+        im = Image.open(Path(root) / c['file'])
+        im.thumbnail((width, height - 30))
+        x, y = (i % cols) * width, (i // cols) * height
+        canvas.paste(im, (x, y))
+        draw.text((x + 6, y + height - 26), f'{c["id"]}  {c["media_time_ms"] / 1000:.2f}s', fill='white')
+    canvas.save(destination, quality=90)

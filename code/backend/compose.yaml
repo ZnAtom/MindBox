@@ -1,0 +1,12 @@
+services:
+  processor:
+    build: .
+    env_file: .env
+    environment:
+      MIND_BOX_OUTPUT_DIR: /app/var/runs
+      MIND_BOX_CATALOG: /app/knowledge/catalog.json
+    volumes:
+      - ../../data:/data:ro
+      - ./var:/app/var
+    init: true
+    command: ["python", "-m", "app.cli", "batch", "/data", "--max-frames", "8"]
