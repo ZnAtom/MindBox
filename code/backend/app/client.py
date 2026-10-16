@@ -48,7 +48,8 @@ class Client:
         text = str(text)
         if self.settings.api_key:
             text = text.replace(self.settings.api_key, '[REDACTED]')
-        text = re.sub(r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '[IMAGE]', text)
+        text = re.sub(r'data:((?:image|video|audio)/[^;,]+);base64,[A-Za-z0-9+/=]+',
+                      lambda match: '[' + match[1].split('/')[0].upper() + ']', text)
         return text[:800]
 
     def log(self, event):

@@ -5,5 +5,6 @@ location：inside=物品可见且在抽屉内；outside=可见且在抽屉外（
 before/after选择本次交互之前/之后的证据，不要求连续每帧完整看清抓取。充分可比的前后画面可用comparable_states；直接看见进入或离开可用crossing。单纯遮挡用occlusion_only。手接近物品不证明抓取。
 放置后at_rest=true表示物品已经由抽屉承托/手已松开；手持悬空不算完成存入。before的at_rest同理。drawer_relative_motion只在物品相对抽屉移动时true。identity=supported需要样例/前后外观可关联，不能只凭相同品名匹配同款多件。
 before/after各引用1-4个本片段帧ID；未知可空。按时间选取前后有代表性的状态，记录未变化的其他物品。候选首次在片段末出现可根据之前清晰空位判absent，而非一律unknown。物品只短暂消失且箱内未清楚显示，须保留遮挡。不要要求在同一帧看见所有物品。
+同时核对首尾ROI和带时间标签的中间帧。before优先引用本窗口最早可确认状态，after优先引用最晚可确认状态，不能只选放入之后的两张照片而漏掉进入过程。所有before引用必须早于所有after引用；单帧不够时保留unknown。手持物品在箱外拉把手不算物品原本在箱内，透明前板中的倒影不算第二件物品。手仍握住且不能确认抽屉承托时at_rest=false；下一窗口才松手也如实报告，不要提前补成已放稳。comparable_states是有效证据，不必为形成动作把它编成crossing。
 只输出JSON：
 {"objects":[{"candidate_id":"提供ID","before":{"location":"inside","frame_ids":["提供ID"],"interior_clear":true,"at_rest":true,"description":"可见依据"},"after":{"location":"outside","frame_ids":["提供ID"],"interior_clear":true,"at_rest":false,"description":"可见依据"},"identity":"supported","evidence":"crossing","drawer_relative_motion":true,"support":"medium"}],"drawer_only":false,"uncertainties":[]}

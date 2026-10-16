@@ -4,12 +4,12 @@
 
 ## 环境
 
-Python 3.13；依赖固定在`requirements.lock.txt`。本地`.env`已保存学校临时Key，Git和Docker忽略该文件；新环境参考`.env.example`。学校当前可用别名为`deepseek-pro`，底层版本未披露。默认校验TLS、单并发、有限重试。
+Python 3.13；基础依赖在`requirements.lock.txt`，第一批另用`requirements-batch.txt`安装日期和调度依赖；ASR使用独立环境及`requirements-asr.txt`。本地`.env`由Git和Docker忽略；新环境参考`.env.example`。实测学校别名为`deepseek-pro`，底层版本未披露；不宣称已调用官方4.1 flash。单并发、有限重试，TLS配置沿用环境设置。
 
 ```powershell
 cd C:\Users\Administrator\Desktop\file\hackthon\code\backend
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-batch.txt
 ```
 
 ## 无模型调用的检查
@@ -55,7 +55,7 @@ python -m venv .venv
 
 新识别运行可在`batch`或`actions`命令末尾加`--database var/mind-box.sqlite3 --cabinet cabinet-01`，读取真实库存快照并在处理结束后保存候选；不会自动提交库存。输出目录仍应保持不可变，修改结果需新建运行目录或显式新attempt。离线素材不保证来自同一连续柜体，导入时应核对柜体与基线版本。
 
-提醒扫描、工作任务领取和回执记录已具备数据库接口；当前没有常驻调度循环、网页发送器或语音播放器。`trigger-reminders`只将到期提醒转为待投递任务，不意味着已播放。
+第一批已增加APScheduler周期扫描入口，SQLite保存真实期限和任务，重启后重新扫描；不是第二套队列。网页发送器和语音播放器尚未实现，`trigger-reminders`及扫描只产生待投递任务，不意味着收到或播放。
 
 备份恢复：将备份目录中的数据库和同名`*-assets`目录放在同一父目录下，继续使用该数据库路径；可直接对备份路径运行`db --database <path> status`检查。原始视频仍为外部引用，重要录像另行备份。数据库备份使用SQLite backup API，兼容WAL，不直接复制正在写入的主文件。
 
@@ -92,7 +92,7 @@ python -m venv .venv
 
 ## Docker
 
-Docker Linux引擎已验证；项目镜像因基础镜像下载超时尚未构建成功，真实样本在`.venv`完成。网络可用后：
+历史曾验证Docker Linux引擎，但基础镜像下载超时。本轮2026-10-17找不到Docker命令或预期安装路径，未构建/运行容器；下面是可执行配置，不是容器成功记录。真实样本在`.venv`和独立ASR环境完成。具备Docker的机器上：
 
 ```powershell
 docker compose config --quiet
@@ -101,4 +101,58 @@ docker compose run --rm processor python -m app.cli batch /data --output /app/va
 docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/docker-test
 ```
 
-视频只读挂载，输出写`var`；Key仅运行时注入。联网商品搜索还需额外`SERPAPI_API_KEY`和`MIND_BOX_WEB_SEARCH=true`，默认不启用，不是真正反向搜图。ASR、独立OCR和分割未部署。
+视频只读挂载，输出写`var`；Key仅运行时注入。新增`Dockerfile.asr`和Compose的`asr` profile，语音权重单独挂载。联网商品搜索默认关闭，仍不是反向搜图；独立OCR和分割未部署。
+
+## 第一批离线入口
+
+首次配置独立ASR环境；不改主环境的PyAV版本：
+
+```powershell
+.\.venv\Scripts\python.exe -m venv var/environments/asr
+.\var\environments\asr\Scripts\python.exe -m pip install -r requirements-asr.txt
+.\var\environments\asr\Scripts\python.exe -m app.asr var/runs/voice-intake-20261016-01/v10/audio.wav --output var/asr/download-check.json --models var/models --model small
+```
+
+官方Hugging Face下载本轮超时，曾显式使用`HF_ENDPOINT=https://hf-mirror.com`下载相同仓库；本地权重校验值记录在`var/runs/batch-a-asr/v10-final.json`。依赖必须保持`av==16.1.0`：本轮ASR环境的av19不兼容faster-whisper传入的`metadata_errors`。主环境继续使用原av18.1.0。
+
+新视频统一入口，目录必须新建；`--asr-python`可选，传入后先视觉，再独立转写和槽位处理。动作pending不阻止语音建议保存；只有确认实物关联后才写实物字段。不是实时流式接口。
+
+```powershell
+.\.venv\Scripts\python.exe -m app.batch_a ../../data/v10.mp4 --root var/experiments/new-v10-cold --asr-python var/environments/asr/Scripts/python.exe
+.\.venv\Scripts\python.exe -m app.batch_tools var/experiments/new-v10-cold inspect
+.\.venv\Scripts\python.exe -m app.task_worker var/experiments/new-v10-cold --seconds 10
+```
+
+也可分步执行`batch_tools ... speech --video-hash ... --audio ... --asr ...`；`--removal-policy-reason`显式启用过期取出产品策略，来源标为configured_policy，不冒充语音。`enrich --run ... --candidate ... --item ...`只补既有关联实物。商品命令为`memory-stage / memory-verify / memory-search / memory-reuse / snapshot`，详细参数可看各命令帮助。`memory-reuse`需要当前已保存的品牌+款式或真正解码证据，类名相似仅返回candidate。
+
+`task-complete --task ... --version ... --expiry-cutoff <带时区绝对时刻> --due-at <带时区绝对时刻>`用于用户明确补齐的一次提醒；条件规则不传due-at。必须先有已关联实物的确定年份日期；不默认提前一天或九点。生产时间、有效期只能经来源受限的事实事务或真实人工纠正写入。
+
+实际结果：`var/review/batch-a-audit.json`为合并审计；`var/experiments/batch-a-v9-cold`和`batch-a-v10-cold`为自动结果；`batch-a-assisted-v10-r2/acceptance-report.json`为已明确标注的复核演示，不能当作自动成功。其中comparisons分别保存cold/warm/holdout/disabled库及真实短倒计时；生产库存没有迁移或提交。
+
+## 视频直传能力最小测试
+
+独立入口先生成两段顺序相反的3秒H.264 MP4，要求模型返回每阶段的颜色和形状，逐项比对；HTTP200及模型自称可看视频不算通过。只向已配置学校接口发送合成素材，不写数据库；输出目录必须新建，原始回答与失败日志保留。
+
+```powershell
+.\.venv\Scripts\python.exe -m app.video_probe --output var/experiments/video-chat-new
+.\.venv\Scripts\python.exe -m app.video_probe --output var/experiments/video-response-new --protocol responses_input_video
+.\.venv\Scripts\python.exe -m app.video_probe --output var/experiments/image-control-new --image-controls var/experiments/video-chat-new
+```
+
+`chat_video_url`和`responses_input_video`是待验证的格式假设，未取得学校视频协议文档；不能推断其模型或路由支持所有其他视频上传方式。2026-10-17实测4次MP4均未通过，三张图片对照通过，因此未发送v7/v9/v10等真实录像作视频直传对比。完整结果与下一步见[失败经验第8节](../doc/evaluation-and-lessons.md#8-视频直传最小测试2026-10-17)。当前`success` API日志仅表示取得回答，必须另看`report.json`的`native_video_status`和各trial的`passed`。
+
+## P0动作回归
+
+复用已冻结的物品crop/候选，对动作阶段独立回归；原视频、旧结果和正式库只读。每个视频有独立SQLite/assets/manifest，`ans.md`只用于事后评测，标签不会输入模型。所有新运行目录必须不存在；中断后使用新目录和显式精确缓存来源，不覆盖旧实验。
+
+```powershell
+.\.venv\Scripts\python.exe -m app.action_regression --root var/experiments/replay-new --mode replay --variant recorded
+.\.venv\Scripts\python.exe -m app.action_regression --root var/experiments/fresh-new --mode fresh --videos v9 v10 v7 v8
+.\.venv\Scripts\python.exe -m app.action_regression --root var/experiments/cache-new --mode fresh --cache-from var/experiments/fresh-new
+.\.venv\Scripts\python.exe -m app.action_regression --root var/experiments/cache-new --mode finalize
+.\.venv\Scripts\python.exe -m scripts.action_regression_audit var/experiments/fresh-new var/experiments/cache-new --output var/review/action-audit.json
+```
+
+`recorded`保留相反复核，`original`仅重放各窗口首轮回答，两者都不是新模型观察。`fresh`重新从原视频解码并调用动作观察，物品识别仍冻结；`--cache-from`仅按完整请求哈希命中，未命中才联网，cache_seed来源及哈希写manifest。`finalize`只对已提交的同item补名称，重复执行不再新增事务；pending不补成已入库。审计脚本只读数据库，汇总真实回执、调用/校验失败、输入哈希和当前测试报告。
+
+本轮实际目录：`p0-replay-recorded-20261017-01`、`p0-replay-original-20261017-01`、`p0-fresh-20261017-01`、`p0-final-20261017-01`；合并审计`var/review/p0-audit.json`。最终v9/v10/v8通过并各1件/revision2，v7失败未写库；103项程序测试通过。最终36次精确缓存命中、0次新增HTTP，不能算第二组独立识别准确率；ASR和真实提醒未重跑，Docker未构建。

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f4f4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>mind box · 我的空间</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="./" aria-label="mind box 首页"><i data-lucide="box"></i><span>mind box</span></a>
+      <span class="topbar-location">我的空间</span>
+      <div class="topbar-tools">
+        <span class="preview-label"><span class="status-dot"></span>界面预览</span>
+        <button class="icon-button" id="theme-button" aria-label="切换明暗主题" data-tooltip="切换明暗主题"><i data-lucide="moon"></i></button>
+        <button class="icon-button" id="settings-button" aria-label="设置" data-tooltip="设置"><i data-lucide="settings-2"></i></button>
+      </div>
+    </header>
+    <main class="workspace" id="workspace">
+      <section class="scene" aria-label="柜体三维视图">
+        <div class="scene-heading"><div class="eyebrow" id="device-code">MIND BOX / 01</div><h1 id="scene-title">宿舍收纳柜</h1><div class="scene-subtitle" id="scene-subtitle">3 个抽屉 · 12 件物品</div></div>
+        <div class="scene-tools">
+          <button class="icon-button" id="reset-view" aria-label="恢复默认视角" data-tooltip="恢复视角"><i data-lucide="rotate-ccw"></i></button>
+          <button class="icon-button" id="demo-drawer" aria-label="演示当前抽屉开合" data-tooltip="演示抽屉开合"><i data-lucide="play"></i></button>
+        </div>
+        <div class="viewport" id="viewport"><div class="model-fallback" id="model-fallback" hidden><i data-lucide="archive"></i><span>3D 视图暂不可用</span></div></div>
+        <div class="scene-state" id="scene-state"><span class="status-dot"></span><span>抽屉已合上</span></div>
+        <div class="drawer-dock" id="drawer-dock" aria-label="选择抽屉"></div>
+      </section>
+      <aside class="side-panel" id="side-panel" aria-label="设备与物品面板">
+        <div class="device-section">
+          <div class="section-title"><h2>我的设备</h2><div class="inline-actions"><button class="icon-button small" id="add-device" aria-label="添加设备" data-tooltip="添加设备"><i data-lucide="plus"></i></button><button class="icon-button small" id="collapse-panel" aria-label="收起右侧面板" data-tooltip="收起面板"><i data-lucide="panel-right-close"></i></button></div></div>
+          <div class="device-list" id="device-list"></div>
+        </div>
+        <nav class="panel-tabs" aria-label="设备视图" role="tablist"><button id="tab-overview" role="tab" data-tab="overview" aria-selected="true" aria-controls="panel-content" class="active">概览</button><button id="tab-items" role="tab" data-tab="items" aria-selected="false" aria-controls="panel-content" tabindex="-1">物品<span id="item-count"></span></button><button id="tab-reminders" role="tab" data-tab="reminders" aria-selected="false" aria-controls="panel-content" tabindex="-1">提醒</button></nav>
+        <div class="panel-scroll" id="panel-content" role="tabpanel" aria-labelledby="tab-overview"></div>
+        <div class="panel-footer"><i data-lucide="circle-dashed"></i><span>设备待连接</span><span class="footer-end">预览数据</span></div>
+      </aside>
+      <button class="icon-button panel-reopen" id="expand-panel" aria-label="展开右侧面板" data-tooltip="展开设备面板" aria-expanded="false" aria-controls="side-panel" hidden><i data-lucide="panel-right-open"></i><span class="activity-dot" hidden></span></button>
+    </main>
+    <footer class="bottom-bar"><span class="clock" id="clock"></span><button class="command-trigger" id="command-button"><i data-lucide="mic"></i><span>问问 mind box</span></button><span class="bottom-status"><i data-lucide="hard-drive"></i><span>本地预览</span></span></footer>
+    <section class="command-panel" id="command-panel" aria-label="文字交互" hidden>
+      <div class="command-head"><span><i data-lucide="message-circle"></i>问问 mind box</span><span class="muted">语音未接入</span><button class="icon-button small" id="close-command" aria-label="关闭输入"><i data-lucide="x"></i></button></div>
+      <form id="command-form"><input id="command-input" autocomplete="off" aria-label="输入问题或提醒" placeholder="充电线在哪？" maxlength="200" /><button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i></button></form>
+      <div class="command-response" id="command-response" aria-live="polite" hidden></div>
+    </section>
+    <dialog id="modal" aria-labelledby="modal-title"><div class="modal-heading"><h2 id="modal-title"></h2><button class="icon-button small" id="close-modal" aria-label="关闭窗口"><i data-lucide="x"></i></button></div><div id="modal-body"></div></dialog>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

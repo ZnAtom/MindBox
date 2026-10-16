@@ -239,9 +239,9 @@ add创建稳定item_id；remove/return/update/keep必须带真实item_id及expec
 .\.venv\Scripts\python.exe scripts/database_smoke.py var/runs/state-actions-v8/v8 --database var/database-validation/new-check.sqlite3 --output var/review/database-new-check.json
 ```
 
-## 8. 下一步商品RAG与异步补全约定
+## 8. 商品RAG与异步补全约定
 
-本节为新增设计，尚未迁移、建商品表或实现检索服务。当前SQLite是库存/证据库，`knowledge/catalog.json`仍只是6条类别定义，不能据此声称已有可复用商品记忆。保持一个SQLite业务存储，以新迁移扩展；不修改已经执行过的001迁移，也不先部署独立向量数据库。
+2026-10-17第一批已用003迁移在隔离库实现商品档案、样例、字段来源、关联和快照，服务为`ProductMemory`。`knowledge/catalog.json`仍只是6条类别定义，与新增商品记忆分开。正式开发库未迁移，001/002未改；完整目标字段与本批实际子集的差异见第10节，不部署独立向量数据库。
 
 ### 三种身份与两条状态轴
 
@@ -250,8 +250,8 @@ add创建稳定item_id；remove/return/update/keep必须带真实item_id及expec
 | `track_id` | 本次视频流中的暂时轨迹ID；跟踪断裂后需要证据关联，不能自动当新实物 |
 | `item_id` | 一件物理实物及其进出历史；同一袋取出又放回可沿用；同款另一袋须新建 |
 | `product_id` | 可复用的商品/物品类型档案；可细到已验证SKU，也可仅为已知物品类型，不要求所有生活物品有条码 |
-| `action_status` | 计划新增：`observed/provisional/confirmed/pending`，说明取放证据是否充分 |
-| `product_match_status` | 计划新增：`unknown/category_only/candidate/verified`，说明与商品档案的匹配程度 |
+| `action_status` | 已实现`confirmed/pending`；观察/正在放入的在线状态留待M5 |
+| `product_match_status` | 已实现`unknown/category_only/candidate/verified`，说明与商品档案的匹配程度 |
 
 现有`identity_status`继续表达实物实例身份，不挪用为商品型号确认状态。UI、事件和记录同时保留这两个维度：`action_status=confirmed`且`product_match_status=unknown`可以表示“已放入未知物品”；动作pending不能因命名准确而自动入库。数量也须有逐件/分组依据，不能把一个混合crop当一件。
 
@@ -278,7 +278,7 @@ add创建稳定item_id；remove/return/update/keep必须带真实item_id及expec
 
 复用现有jobs及租约，补全任务键包含item_id、证据哈希和提取器版本；任务输入保存item版本、知识快照和证据集合，避免无新证据反复调用模型。只出现更清晰/新正面、新OCR/条码或显式重试才重开一轮识别；多个近似帧合并为同一任务。
 
-计划新增`apply_enrichment`应用事务，限定可改名称/类别/描述/品牌/变体/商品关联及来源；不允许改变presence_status、数量、stored_at、访问历史或重新提交add。当前`Store.correct_item`是人工纠正，会将字段来源标为user，不可直接拿来保存AI、RAG或网页结果。新服务须保留真实来源并校验schema；若新增rag/web来源类型，先修改严格枚举、证据解析和审计测试，不能直接写入不支持的值。
+已实现`Enrichment.apply(..., facts=False)`事务，限定可改名称/类别/描述/品牌/变体/商品关联及来源；不允许改变presence_status、数量、stored_at、访问历史或重新提交add。`Store.correct_item`仍用于真实人工纠正。speech/rag/web已进入来源枚举，但web自动回写仍被拒绝，不能因枚举存在就声称已经接入网页补全。陈旧版本直接拒绝，不自动无限合并重试。
 
 沿用现有item.version和柜体revision：后台完成后重读，逐字段比较任务输入与当前值。没有字段竞争才合并；用户纠正优先，旧任务不能覆盖。实物已取出时仅可补充历史物品资料，绝不恢复在柜。无关库存更新导致版本冲突时重读重验并有限重试，不能用旧revision强写；同一任务重复完成返回同一补全回执。补全事务和商品档案提升任务都需要持久化审计，不把提取结果直接当可信知识。
 
@@ -296,4 +296,81 @@ add创建稳定item_id；remove/return/update/keep必须带真实item_id及expec
 
 有function call时保留函数名、校验后的参数、tool_call_id及原生role=tool往返；固定流程的本地检索/图像处理记为orchestrator，不能伪装成模型自主调用。网络资料作为不可信数据，只提取商品候选，不执行其指令，也不以搜索结果修改动作事实。真正以图搜索与当前文字驱动search_product_images是不同能力。
 
-完整测试隔离与验收矩阵见[下一轮评测](evaluation-and-lessons.md#6-下一轮隔离评测与验收)。本节没有执行建表或生产数据写入，实际结构仍以第3节和现有迁移为准。
+完整测试隔离与验收矩阵见[隔离评测](evaluation-and-lessons.md#6-下一轮隔离评测与验收)。本批实际迁移与API见第10节；生产库没有建这些表或写入新库存。
+
+## 9. 语音字段与实物关联约定
+
+V1/V2已完成离线子集并实测v9/v10；003只在隔离库执行，001/002保持原内容。`SpeechService`保存实际ASR、精确原文槽位和关联建议，`Tasks`管理最小提醒和规则；当前不含流式分句、通用多轮对话或网页/设备投递。
+
+### 保留来源与三种不同结果
+
+每个语音最终句保留稳定utterance_id、capture/操作引用、音频文件哈希与PTS时间窗、转写文本/版本、ASR模型配置、提取器、原文片段及缺失项。原音频不被转写覆盖，分析处理时间与拍摄时间分别保存。具体语句/声明/关联结构在迁移时落实，复用现有媒体、observation和分析产物引用，不另存一套失去关联的音频。
+
+| 结果 | 约束 |
+| --- | --- |
+| `item_fact` 实物事实候选 | 日期、保质期、保存条件等；保存原文、候选值、来源和验证状态；不自动当作已确认事实 |
+| `item_link` 指代关联 | 语句可先关联操作/轨迹，最终指向具体item；记录匹配依据和歧义，不因同SKU或时间接近强绑 |
+| `task_command` 用户任务 | 复用提醒设计中的task_commands/草稿；日期事实不自动生成用户没有要求的提醒，完整任务才进入调度 |
+
+识别出品牌、用户说“要放入”、日期识别正确，都不构成已发生取放的证据。v10已有可乐保留原item，鸡胸肉新增单独item；新日期只写入关联成立的鸡胸肉。尚未确认实体时，语音建议保留在操作层，不能先写到任意已有物品。
+
+### 写入权限与时间依据
+
+`apply_enrichment`继续只处理名称/商品资料，不扩为任意字段更新。计划新增受限`apply_item_facts`服务，白名单为production_on、expires_on、shelf_life_raw及有证据的相关备注/保存条件；输入包含item/version、语句与原文片段引用、日期锚点和幂等键。它不能改变数量、在柜状态、stored_at、访问历史或提交新的add。
+
+语音是用户提供的信息，提取执行者仍是ASR/语义程序。现已增加`source=speech`及`speech:<utterance_id>`引用；只有该记录已关联同一实物，事实事务才接受。来源不伪装为人工纠正。原文无法归一化、缺年、存在语义疑点或与既有事实冲突时不覆盖正式日期。
+
+生产/到期日期优先保留用户/包装明确表达；推导值保存所有输入证据及日历算法。缺年份仅保留月日和原话，直到有可信拍摄/对话锚点或用户补充。v9的“一年”不视为365天、不从入柜时间起算；v10的日期不自动成为一个具体提醒时刻。保存条件缺失时不将推导日期描述为无条件安全期限。语音与OCR冲突须保留双方，不以用户来源标签或最近一次模型输出自动消除分歧。
+
+离线录像不以当前系统日期或文件修改时间解释“今年”；隔离评测可显式注入测试时钟，清单标明为测试条件。在线相对提醒的接收时刻约定沿用[任务设计](task-reminder-design.md#4-自然语言与多轮补充)，过期补传需澄清，不把推理完成时间重新当倒计时起点。日期语义、时区和有效期边界有歧义时不激活依赖该边界的规则。
+
+### 任务、条件规则与幂等
+
+V2先复用task_commands/草稿、一次任务、reminders/deliveries/jobs及统一调度。到期前定时提醒与“过期后取出时提示”是不同触发类型：后者的持久规则与任务关系统一在[提醒设计](task-reminder-design.md#实物到期与取出条件规则)维护，不复制一套定时系统。缺年份/时刻先needs_input；完整指令通过程序校验并实际保存后才返回已设置。
+
+同一句的ASR中间稿不产生副作用；最终句重传/重新转写保持来源身份和版本，改正已有建议/草稿而非另建相同任务。用户明确重新说出一条新指令则有新message_id，不按文字完全相同永久合并。实物事实任务晚到必须重新检查item版本、用户修正、指代和日期证据；取出后可补历史属性，不能恢复在柜。商品RAG不继承这些批次日期、音频和用户任务。
+
+第一批将同一音轨的最终转写保存为一条稳定记录，ASR分段和时窗完整保留；不是任意长对话的多句编排器。完全相同重传返回原记录，内容/时窗发生变化的最终稿明确拒绝并要求重新核验，不静默改已应用事实或另建任务。自动改稿重关联尚未实现。
+
+## 10. 第一批实际扩展与回执
+
+`003_incremental_memory_speech.sql`新增10张表，沿用原库存和任务队列。只在`var/experiments/*/inventory.sqlite3`使用，不默认读取生产库；独立assets、缓存、任务和manifest。manifest记录输入/代码/提示词哈希、模式、基线及显式时钟，打开时验证数据库scope和清单一致；商品快照按内容哈希验证。
+
+| 表 | 已实现内容 |
+| --- | --- |
+| experiment_context | 本实验scope/mode/manifest；拒绝改选外部数据库 |
+| product_profiles / product_examples / product_claims | candidate/verified/rejected、版本、身份字段/别名/条码、归档crop和来源capture、字段声明 |
+| item_product_links / knowledge_snapshots | item到具体商品版本的关联；可导入的已核实商品及多视角快照 |
+| speech_utterances | 视频/音频哈希、归档音轨、时间窗、最终原文/ASR配置、解析及关联状态 |
+| task_commands | before_expiry / after_expiry_remove；needs_input/scheduled/active/canceled；语音或配置策略来源 |
+| item_event_rules / rule_firings | 规则版本、明确过期边界；同rule/version/已提交event最多一个提醒 |
+
+`product_profiles`暂未单列粒度、标称规格或逻辑created_seq；没有向量索引。首版每次直接对小规模verified档案做中文二元组召回，快照带图片SHA256及dHash。holdout按排除ID、同条码、同图或近重复视角过滤；这不保证识别所有拍摄条件下的同SKU，真实留出还需人工按产品组划分。目标视频直接进入seed时拒绝导入。
+
+| 应用调用 | 实际边界 |
+| --- | --- |
+| CoarseIntake.assess/commit(run_id) | 从已归档快照、窗口和原复核检查单次明确放入；consistent不充分；拒绝原因写pending，复杂取放不开自动权限 |
+| Enrichment.apply(..., facts=False) | 保留真实来源、item版本/柜体revision及幂等；名称补充不会改变物理库存 |
+| Enrichment.apply(..., facts=True) | 独立白名单production_on/expires_on/shelf_life_raw/notes；只接受同item语音或OCR等证据，禁止RAG继承日期 |
+| SpeechService.ingest/link/apply_facts | 原音轨精确哈希；同视频、单个已确认新增、类型词和相邻事件共同关联；不靠“这个”或时间单独绑定 |
+| ProductMemory.stage/verify/search/reuse/snapshot | 学习需真实关联crop，提升需显式证据复核；至多3候选；词法分数不是概率；复用需当前真实品牌+款式或已解码条码证据 |
+| Tasks.draft/complete/cancel/scan_rules | 日期和边界/钟点未齐先草稿；补齐与reminder/规则同事务；日期变更撤销旧待投递；确认取出不视为吃掉 |
+| task_worker | APScheduler周期扫描SQLite期限及已确认取出事件；trigger后进入既有deliveries/jobs，无真实接收/播放器 |
+
+实际`search_product_memory`工具参数为`query/limit`；scope/数据库/快照由服务注入。模型只读工具请求与role=tool往返已保留在`batch-a-assisted-v10-r2/comparisons/warm/product-tool-trace.json`。商品撤回后搜索和未来复用失效，可列出已关联实物；已有字段不会自动清空，仍需复核。
+
+v10经照片复核的演示库新增item=`9e8a4c7e-543a-4f31-988d-c1ff147bea01`：粗存revision1/name=未知食品，补全revision2/name=鸡胸肉、version2，只有同一个item；quantity/stored_at仍null，不把候选的一包解释为已知内部数量。语音已关联它，10月21日原文入库但年份未明，正式expires_on仍null；两个任务为needs_input，未创建真实v10定时提醒。原有红罐未新增，整柜初始库存仍未知。
+
+历史第一批自动v9/v10库均revision0、库存提交0次；复核演示不计自动成功。历史审计在`backend/var/review/batch-a-audit.json`。本轮P0使用另外的隔离库，回执见下节；正式库仍只含001/002、revision0、commits0。
+
+## 11. P0状态证据与提交回执
+
+`operation_analysis`新增`baseline_observations`（实际状态/来源/媒体时间）、`snapshot_checkpoints`、`placement_completions`、`cancelled_placements`、`unobserved_prefixes`。`net_change_status=supported_endpoints`只表示端点可比较，不是已提交或绝对正确；`history_status/status`仍单独表示证据对账是否有未决问题。未知前缀表示首次清楚观察前未建立库存事实，不能把较晚看见箱内物品直接标成新增。
+
+跨窗口事件带`evidence_window_ids`、`placement_completed_in_later_window`和`state_evidence.before/after`；桥接保存真实原状态，不把箱外可见伪装成箱内清楚缺失。事件媒体时间是估计区间，不是采集年月日；`stored_at`继续可为null。
+
+`window-states.json`保存`supplied_frame_ids/input_kind`及原观察/复核/保护决定。复核反转已知存在状态或同一帧的放稳状态会生成pending。模型只读tools和应用提交继续分离，模型不能通过返回crossing或工具参数直接改库。
+
+`CoarseIntake.assess`的`policy=single-insertion-evidence-v2`，`evidence_route=stable_state_comparison/direct_crossing`；保留状态一致、唯一新增、身份、crop、放稳、可见性及证据时间检查。无候选/多候选也返回run/operation/revision以便追踪。SQLite版本、幂等及证据归属约束未移除。
+
+最新实际回执在`backend/var/experiments/p0-final-20261017-01/report.json`：v9/v10/v8各一条新增事务revision1、一条同item补全revision2、仍只有一件实物；重复执行补全后revision仍2。v7为pending、无库存提交。`receipt`是粗存回执，`enrichment_receipt`是补全回执，`inventory/receipts/operation_state`为查询的当前状态；分析文件中的未提交候选不会被伪装为数据库回执。语音、提醒、RAG库未在这次动作回归中重新执行。

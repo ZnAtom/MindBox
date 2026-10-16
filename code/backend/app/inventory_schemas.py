@@ -10,7 +10,7 @@ class Strict(BaseModel):
 
 
 class FieldSource(Strict):
-    source: Literal['vision', 'ocr', 'barcode', 'user', 'system', 'derived', 'unknown']
+    source: Literal['vision', 'ocr', 'barcode', 'user', 'system', 'derived', 'unknown', 'speech', 'rag', 'web']
     certainty: Literal['recorded', 'estimated', 'unknown']
     evidence_refs: list[str] = Field(default_factory=list)
     extractor: str | None = None
@@ -21,13 +21,16 @@ class ItemValues(Strict):
     name: str = Field(min_length=1, max_length=120)
     category: str = Field(default='未知', min_length=1, max_length=60)
     description: str | None = Field(default=None, max_length=1000)
-    brand: str | None = None
-    variant: str | None = None
+    brand: str | None = Field(default=None, max_length=120)
+    variant: str | None = Field(default=None, max_length=180)
     quantity: int | None = Field(default=None, ge=1, strict=True)
     unit: str | None = None
     location_id: str | None = None
     identity_status: Literal['candidate', 'confirmed', 'group_uncertain'] = 'candidate'
     presence_status: Literal['present', 'unseen', 'removed', 'uncertain'] = 'present'
+    action_status: Literal['confirmed', 'pending'] = 'confirmed'
+    product_match_status: Literal['unknown', 'category_only', 'candidate', 'verified'] = 'unknown'
+    product_id: str | None = None
     first_seen_at: str | None = None
     last_seen_at: str | None = None
     stored_at: str | None = None
@@ -52,7 +55,7 @@ class ItemValues(Strict):
         for key in ('production_on', 'expires_on'):
             if getattr(self, key) is not None:
                 meta = self.field_meta.get(key)
-                if not meta or meta.source not in ('ocr', 'barcode', 'user', 'derived') or meta.certainty != 'recorded':
+                if not meta or meta.source not in ('ocr', 'barcode', 'user', 'derived', 'speech') or meta.certainty != 'recorded':
                     raise ValueError('Actual label dates require recorded label/user provenance')
                 if meta.source == 'derived' and not meta.evidence_refs:
                     raise ValueError('Derived dates require explicit input evidence')
@@ -84,6 +87,7 @@ class CommitPlan(Strict):
     base_revision: int = Field(ge=0, strict=True)
     idempotency_key: str = Field(min_length=1, max_length=200)
     reviewed_by: str = Field(min_length=1, max_length=120)
+    coarse_only: bool = False
     decisions: list[Decision] = Field(max_length=100)
 
     @model_validator(mode='after')
