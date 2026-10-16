@@ -15,7 +15,7 @@ from .matching import AppearanceMatcher
 from .schemas import pixel_box
 
 PROMPTS = Path(__file__).parent / 'prompts'
-VERSION = 1
+VERSION = 3
 
 
 def action_prompt(name):
@@ -146,8 +146,8 @@ def validate_states(value, candidate_ids, allowed_before, allowed_after, frames)
             if state.location == 'absent' and not state.interior_clear:
                 raise ValueError('Absence requires a clear view of the drawer interior')
         if obj.before.frame_ids and obj.after.frame_ids:
-            if min(frames[f]['media_time_ms'] for f in obj.before.frame_ids) > max(frames[f]['media_time_ms'] for f in obj.after.frame_ids):
-                raise ValueError('Object state evidence reverses time')
+            if max(frames[f]['media_time_ms'] for f in obj.before.frame_ids) >= min(frames[f]['media_time_ms'] for f in obj.after.frame_ids):
+                raise ValueError('Object state evidence must have strictly ordered before/after references')
 
 
 def guard_states(value, rejected):
@@ -249,70 +249,222 @@ def presence(state):
     return None
 
 
+def review_conflicts(original, revised):
+    """A later answer is not independent proof that a known observation was wrong."""
+    conflicts = []
+    previous = {o['candidate_id']: o for o in original['objects']}
+    for obj in revised['objects']:
+        old = previous.get(obj['candidate_id'])
+        if not old:
+            continue
+        for side in ('before', 'after'):
+            a, b = old[side], obj[side]
+            pa, pb = presence(a), presence(b)
+            if pa is not None and pb is not None and pa != pb:
+                conflicts.append({'candidate_id': obj['candidate_id'], 'side': side,
+                                  'reason': 'review_reversed_known_presence'})
+            elif (pa is True and pb is True and a['at_rest'] != b['at_rest']
+                  and set(a['frame_ids']) & set(b['frame_ids'])):
+                conflicts.append({'candidate_id': obj['candidate_id'], 'side': side,
+                                  'reason': 'review_reversed_same_frame_rest_state'})
+    return conflicts
+
+
+def selected_observation(window):
+    original = window.get('initial_observation')
+    revised = window.get('review_observation', window['observation'])
+    conflicts = review_conflicts(original, revised) if original else []
+    return (original if conflicts else window['observation']), conflicts
+
+
 def reconcile(snapshots, windows, frames):
-    """Replay supported transitions without letting a model choose action labels."""
-    initial = {o['candidate_id']: presence(o['before']) if o['identity'] == 'supported' else None for o in snapshots['objects']}
-    final = {o['candidate_id']: presence(o['after']) if o['identity'] == 'supported' else None for o in snapshots['objects']}
+    """Replay dated evidence and complete a placement only after stable support."""
+    def time_of(state):
+        return max((frames[f]['media_time_ms'] for f in state['frame_ids']), default=-1)
+
+    def supported(obj):
+        return obj['identity'] == 'supported' and obj['support'] in ('high', 'medium')
+
+    observations = [(w, *selected_observation(w)) for w in windows]
+    baseline, final, prefixes = {}, {}, []
+    for snapshot in snapshots['objects']:
+        cid = snapshot['candidate_id']
+        choices = [(snapshot, 'snapshot', None, 'before')] + [
+            (o, 'window', w['window_id'], 'before') for w, observation, _ in observations
+            for o in observation['objects'] if o['candidate_id'] == cid]
+        choices = [(o, source, wid, side) for o, source, wid, side in choices
+                   if supported(o) and presence(o['before']) is not None and o['before']['frame_ids']]
+        if supported(snapshot) and presence(snapshot['before']) is True:
+            choices += [(o, 'window_after', w['window_id'], 'after')
+                        for w, observation, _ in observations for o in observation['objects']
+                        if o['candidate_id'] == cid and supported(o) and presence(o['before']) is None
+                        and presence(o['after']) is True and o['after']['at_rest'] and o['after']['frame_ids']]
+        if choices:
+            obj, source, wid, side = min(choices, key=lambda row: time_of(row[0][row[3]]))
+            baseline[cid] = {'state': obj[side], 'identity': obj['identity'], 'support': obj['support'],
+                             'source': source, 'window_id': wid, 'media_time_ms': time_of(obj[side])}
+            if side == 'after':
+                prefixes.append({'candidate_id': cid, 'until_ms': time_of(obj[side]),
+                                 'reason': 'initial_presence_unobserved_before_first_clear_view'})
+        final[cid] = presence(snapshot['after']) if supported(snapshot) else None
+    initial = {o['candidate_id']: presence(baseline[o['candidate_id']]['state'])
+               if o['candidate_id'] in baseline else None for o in snapshots['objects']}
     ledger, removed, events, pending, gaps = dict(initial), set(), [], [], []
-    known_refs = {o['candidate_id']: list(o['before']['frame_ids']) for o in snapshots['objects']}
-    for window in windows:
-        for obj in window['observation']['objects']:
+    known_refs = {cid: list(baseline[cid]['state']['frame_ids']) if cid in baseline else [] for cid in initial}
+    known_states = {cid: baseline[cid]['state'] if cid in baseline else None for cid in initial}
+    intents, completions, cancelled = {}, [], []
+
+    def emit(obj, window, before_state, bridged=False, origin=None):
+        cid = obj['candidate_id']
+        before_refs, after_refs = before_state['frame_ids'], obj['after']['frame_ids']
+        if (not before_refs or not after_refs or time_of(before_state) >=
+                min(frames[f]['media_time_ms'] for f in after_refs)):
+            pending.append({'window_id': window['window_id'], 'candidate_id': cid,
+                            'reason': 'transition_has_no_time_interval'})
+            return False
+        after = presence(obj['after'])
+        kind = ('return' if cid in removed else 'add') if after else 'remove'
+        a = min(before_refs, key=lambda f: frames[f]['media_time_ms'])
+        b = max(after_refs, key=lambda f: frames[f]['media_time_ms'])
+        events.append({'kind': kind, 'candidate_ids': [cid], 'before_frame_id': a, 'after_frame_id': b,
+            'event_window_ms': [frames[a]['media_time_ms'], frames[b]['media_time_ms']],
+            'explanation': before_state['description'] + ' → ' + obj['after']['description'],
+            'support': 'medium' if origin and origin['support'] == 'medium' else obj['support'],
+            'evidence_type': (origin or {}).get('evidence', obj['evidence']),
+            'window_id': window['window_id'], 'bridged_from_prior_evidence': bridged,
+            'placement_completed_in_later_window': origin is not None and origin['window_id'] != window['window_id'],
+            'state_evidence': {'before': before_state, 'after': obj['after']},
+            'evidence_window_ids': list(dict.fromkeys([(origin or {}).get('window_id', window['window_id']), window['window_id']])),
+            'committed': False, 'stored_at': None, 'certainty': 'estimated', 'source': 'vision_state_transition'})
+        ledger[cid], known_refs[cid] = after, list(after_refs)
+        known_states[cid] = obj['after']
+        if after:
+            removed.discard(cid)
+        else:
+            removed.add(cid)
+        return True
+
+    for window, observation, conflicts in observations:
+        pending.extend({**conflict, 'window_id': window['window_id']} for conflict in conflicts)
+        for obj in observation['objects']:
             cid = obj['candidate_id']
             before, after = presence(obj['before']), presence(obj['after'])
-            if obj['identity'] == 'uncertain' and before == after:
-                gaps.append({'window_id': window['window_id'], 'candidate_id': cid, 'reason': 'uncertain_unchanged_identity'})
+            if not supported(obj):
+                if before == after:
+                    gaps.append({'window_id': window['window_id'], 'candidate_id': cid, 'reason': 'uncertain_unchanged_identity'})
+                else:
+                    pending.append({'window_id': window['window_id'], 'candidate_id': cid,
+                                    'reason': 'identity_or_transition_evidence_uncertain'})
                 continue
-            before_refs = list(obj['before']['frame_ids'])
-            bridged = False
+            if cid in baseline and any(
+                    presence(obj[side]) is not None and presence(obj[side]) != initial[cid]
+                    and set(obj[side]['frame_ids']) & set(baseline[cid]['state']['frame_ids'])
+                    for side in ('before', 'after')):
+                pending.append({'window_id': window['window_id'], 'candidate_id': cid,
+                                'reason': 'same_frame_presence_conflict'})
+                continue
             if before is None and after is None:
                 gaps.append({'window_id': window['window_id'], 'candidate_id': cid, 'reason': 'not_observed'})
                 continue
+            if (before is None and after is True and cid in baseline
+                    and baseline[cid]['source'] == 'window_after'
+                    and time_of(obj['after']) == baseline[cid]['media_time_ms']):
+                gaps.append({'window_id': window['window_id'], 'candidate_id': cid,
+                             'reason': 'first_clear_presence_not_an_add_event'})
+                continue
+            usable = obj['evidence'] in ('crossing', 'comparable_states') and not observation['drawer_only']
+            intent = intents.get(cid)
+            # A held object may span several windows before the drawer supports it.
+            if intent and usable and after is True and obj['after']['at_rest'] and time_of(obj['after']) > intent['seen_ms']:
+                if emit(obj, window, intent['before'], intent['bridged'], origin=intent):
+                    completions.append({'candidate_id': cid, 'started_window_id': intent['window_id'],
+                                        'completed_window_id': window['window_id']})
+                    del intents[cid]
+                continue
+            if intent and usable and after is False:
+                if before is True and obj['before']['at_rest']:
+                    placed = {**obj, 'after': obj['before']}
+                    if emit(placed, window, intent['before'], intent['bridged'], origin=intent):
+                        del intents[cid]
+                elif before is not None and not obj['before']['at_rest']:
+                    cancelled.append({'candidate_id': cid, 'window_id': window['window_id'],
+                                      'reason': 'held_object_left_without_confirmed_placement'})
+                    del intents[cid]
+                    ledger[cid], known_refs[cid] = False, list(obj['after']['frame_ids'])
+                    known_states[cid] = obj['after']
+                    continue
+            before_state, bridged = obj['before'], False
             if before is None and after is not None and ledger[cid] is not None and known_refs[cid]:
-                before, before_refs, bridged = ledger[cid], known_refs[cid], True
+                if max(frames[f]['media_time_ms'] for f in known_refs[cid]) < min(
+                        (frames[f]['media_time_ms'] for f in obj['after']['frame_ids']), default=-1):
+                    before, bridged = ledger[cid], True
+                    before_state = known_states[cid]
             if before == after and before is not None:
                 if ledger[cid] is not None and ledger[cid] != before:
+                    if intent and before is True:
+                        continue
+                    if (before is True and usable and (not obj['before']['at_rest'] or not obj['after']['at_rest'])
+                            and known_refs[cid] and obj['after']['frame_ids']
+                            and max(frames[f]['media_time_ms'] for f in known_refs[cid]) < min(
+                                frames[f]['media_time_ms'] for f in obj['after']['frame_ids'])):
+                        intent = {'before': known_states[cid], 'bridged': True, 'window_id': window['window_id'],
+                                  'seen_ms': time_of(obj['after']), 'evidence': obj['evidence'], 'support': obj['support']}
+                        if obj['after']['at_rest']:
+                            emit(obj, window, intent['before'], True, origin=intent)
+                        else:
+                            intents[cid] = intent
+                        continue
                     pending.append({'window_id': window['window_id'], 'candidate_id': cid,
                                     'reason': 'unchanged_observation_conflicts_with_history'})
+                elif obj['after']['frame_ids'] and time_of(obj['after']) >= max(
+                        (frames[f]['media_time_ms'] for f in known_refs[cid]), default=-1):
+                    known_refs[cid] = list(obj['after']['frame_ids'])
+                    known_states[cid] = obj['after']
                 continue
             reason = None
-            if obj['identity'] != 'supported' or obj['evidence'] not in ('crossing', 'comparable_states'):
+            if obj['evidence'] not in ('crossing', 'comparable_states'):
                 reason = 'identity_or_transition_evidence_uncertain'
             elif before is None or after is None:
                 reason = 'occlusion_or_unknown_state'
-            elif window['observation']['drawer_only']:
+            elif observation['drawer_only']:
                 reason = 'drawer_only_conflicts_with_object_transition'
-            elif after and not obj['after']['at_rest']:
-                reason = 'placement_not_completed'
             elif ledger[cid] is not None and ledger[cid] != before:
                 prior = next((e for e in reversed(events) if cid in e['candidate_ids']), None)
                 times = [frames[f]['media_time_ms'] for f in obj['before']['frame_ids'] + obj['after']['frame_ids']]
                 same_direction = prior and ((after and prior['kind'] in ('add', 'return')) or (not after and prior['kind'] == 'remove'))
-                if same_direction and min(times) <= prior['event_window_ms'][1] and max(times) >= prior['event_window_ms'][0]:
+                if times and same_direction and min(times) <= prior['event_window_ms'][1] and max(times) >= prior['event_window_ms'][0]:
                     continue
                 reason = 'transition_conflicts_with_previous_state'
             if reason:
                 pending.append({'window_id': window['window_id'], 'candidate_id': cid, 'reason': reason})
                 continue
-            after_refs = obj['after']['frame_ids']
-            a = min(before_refs, key=lambda f: frames[f]['media_time_ms'])
-            b = max(after_refs, key=lambda f: frames[f]['media_time_ms'])
-            if frames[a]['media_time_ms'] >= frames[b]['media_time_ms']:
-                pending.append({'window_id': window['window_id'], 'candidate_id': cid, 'reason': 'transition_has_no_time_interval'})
+            if after and not obj['after']['at_rest']:
+                if cid not in intents:
+                    intents[cid] = {'before': before_state, 'bridged': bridged, 'window_id': window['window_id'],
+                                    'seen_ms': time_of(obj['after']), 'evidence': obj['evidence'], 'support': obj['support']}
                 continue
-            kind = ('return' if cid in removed else 'add') if after else 'remove'
-            events.append({'kind': kind, 'candidate_ids': [cid], 'before_frame_id': a, 'after_frame_id': b,
-                'event_window_ms': [frames[a]['media_time_ms'], frames[b]['media_time_ms']],
-                'explanation': obj['before']['description'] + ' → ' + obj['after']['description'],
-                'support': obj['support'], 'evidence_type': obj['evidence'], 'window_id': window['window_id'],
-                'bridged_from_prior_evidence': bridged,
-                'committed': False, 'stored_at': None, 'certainty': 'estimated', 'source': 'vision_state_transition'})
-            ledger[cid] = after
-            known_refs[cid] = list(after_refs)
-            if after:
-                removed.discard(cid)
-            else:
-                removed.add(cid)
+            emit(obj, window, before_state, bridged)
+    pending.extend({'candidate_id': cid, 'window_id': intent['window_id'], 'reason': 'placement_not_completed'}
+                   for cid, intent in intents.items())
     events.sort(key=lambda e: (e['event_window_ms'][1], e['event_window_ms'][0]))
+    checkpoints = []
+    for obj in snapshots['objects']:
+        cid, checkpoint = obj['candidate_id'], obj['before']
+        if cid not in baseline or not supported(obj) or presence(checkpoint) is None:
+            continue
+        t = time_of(checkpoint)
+        if t <= baseline[cid]['media_time_ms']:
+            continue
+        relevant = [e for e in events if cid in e['candidate_ids']]
+        if any(e['event_window_ms'][0] <= t < e['event_window_ms'][1] for e in relevant):
+            checkpoints.append({'candidate_id': cid, 'media_time_ms': t, 'status': 'during_transition'})
+            continue
+        earlier = [e for e in relevant if e['event_window_ms'][1] <= t]
+        expected = earlier[-1]['kind'] != 'remove' if earlier else initial[cid]
+        matches = expected == presence(checkpoint)
+        checkpoints.append({'candidate_id': cid, 'media_time_ms': t, 'status': 'matched' if matches else 'conflict'})
+        if not matches:
+            pending.append({'candidate_id': cid, 'reason': 'snapshot_checkpoint_conflicts_with_history'})
     net = []
     for cid in initial:
         a, b = initial[cid], final[cid]
@@ -326,8 +478,13 @@ def reconcile(snapshots, windows, frames):
                                 'history_present': ledger[cid], 'snapshot_present': b})
         net.append({'candidate_id': cid, 'change': change, 'initial_present': a, 'final_present': b,
                     'committed': False})
-    return {'status': 'consistent' if not pending else 'pending', 'event_candidates': events,
-            'net_changes': net, 'pending': pending, 'observation_gaps': gaps,
+    return {'status': 'consistent' if not pending else 'pending',
+            'history_status': 'consistent' if not pending else 'pending',
+            'net_change_status': 'supported_endpoints' if all(n['change'] != 'unknown' for n in net) else 'unknown',
+            'event_candidates': events, 'net_changes': net, 'pending': pending, 'observation_gaps': gaps,
+            'baseline_observations': baseline, 'snapshot_checkpoints': checkpoints,
+            'unobserved_prefixes': prefixes,
+            'placement_completions': completions, 'cancelled_placements': cancelled,
             'note': 'Consistency of visual evidence is not ground-truth correctness or a database commit.'}
 
 
@@ -399,19 +556,24 @@ def analyze_operation(video, output, client, result, structured, source=None, in
             allowed = {f['id'] for f in clip['frames']}
             first, last = clip['frames'][0], clip['frames'][-1]
             checkpoint_parts = snapshot_parts_for_pair(first, last, plan, tools.frames, output, window.window_id)
-            messages = [{'role': 'system', 'content': action_prompt('snapshots')}, {'role': 'user', 'content':
-                [contract] + tools.prototypes(include_images=False) + checkpoint_parts}]
+            messages = [{'role': 'system', 'content': action_prompt('states')}, {'role': 'user', 'content':
+                [contract] + tools.prototypes(include_images=False) + checkpoint_parts + images}]
             observation = structured(client, messages, 'states_' + Path(video).stem + '_' + window.window_id,
-                StateComparison, lambda v: check_states(v, cids, {first['id']}, {last['id']}), max_tokens=5600).model_dump()
-            windows.append({**window.model_dump(), 'observation': observation})
+                StateComparison, lambda v: check_states(v, cids, allowed, allowed), max_tokens=5600).model_dump()
+            windows.append({**window.model_dump(), 'observation': observation,
+                            'supplied_frame_ids': [f['id'] for f in clip['frames']],
+                            'input_kind': 'timestamped_sequence_and_endpoints'})
             write_json(output / 'window-states.json', windows)
         analysis = reconcile(snapshots, windows, tools.frames)
         # One bounded, real function-calling round to inspect unresolved interactions.
         unresolved = {p.get('window_id') for p in analysis['pending']} - {None}
         if any(p['reason'] == 'history_does_not_match_final_snapshot' for p in analysis['pending']):
             unresolved.update(w['window_id'] for w in windows)
+        review_attempts = 0
         for window in windows:
             if not analysis['pending']:
+                break
+            if review_attempts >= 3:
                 break
             if window['window_id'] not in unresolved:
                 continue
@@ -429,6 +591,7 @@ def analyze_operation(video, output, client, result, structured, source=None, in
                     'window_end_ms': clip_ranges[window['window_id']][1]}, ensure_ascii=False)}]}]
             response = client.chat(request, 'action_tool_' + Path(video).stem + '_' + window['window_id'],
                 tools=ACTION_TOOLS, tool_choice={'type': 'function', 'function': {'name': 'get_frames'}}, max_tokens=1200)
+            review_attempts += 1
             msg = response['choices'][0]['message']
             calls = msg.get('tool_calls') or []
             if len(calls) != 1:
@@ -453,14 +616,19 @@ def analyze_operation(video, output, client, result, structured, source=None, in
                 request.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(tool_result, ensure_ascii=False)})
             if supplied:
                 request.append({'role': 'user', 'content': added_images + [{'type': 'text', 'text': '现在重新观察此片段，返回约定状态JSON。'}]})
-                window['initial_observation'] = window['observation']
+                window.setdefault('initial_observation', window['observation'])
                 revised = structured(client, request,
                     'states_recheck_' + Path(video).stem + '_' + window['window_id'], StateComparison,
                     lambda v: check_states(v, targets, supplied, supplied), max_tokens=5600).model_dump()
-                window['observation'] = {**revised, 'objects':
-                    [o for o in window['observation']['objects'] if o['candidate_id'] not in targets] + revised['objects']}
+                window['review_observation'] = revised
+                conflicts = review_conflicts(window['initial_observation'], revised)
+                window['review_decision'] = {'status': 'pending' if conflicts else 'accepted', 'conflicts': conflicts}
+                if not conflicts:
+                    window['observation'] = {**revised, 'objects':
+                        [o for o in window['observation']['objects'] if o['candidate_id'] not in targets] + revised['objects']}
                 analysis = reconcile(snapshots, windows, tools.frames)
         analysis.update(scene_plan=plan.model_dump(), version=VERSION,
+                        review_budget={'limit': 3, 'used': review_attempts},
                         rejected_state_claims=rejected_states,
                         snapshot_refs={'before': before_ids, 'after': after_ids},
                         database={'status': 'snapshot_read' if initial_inventory is not None else 'not_connected',
@@ -473,14 +641,17 @@ def analyze_operation(video, output, client, result, structured, source=None, in
         write_json(output / 'action-tool-trace.json', {'trace': tools.trace})
 
 
-def action_batch(input_path, source_run, output, names=None, resume=False, database=None, cabinet_id='cabinet-01'):
+def action_batch(input_path, source_run, output, names=None, resume=False, database=None, cabinet_id='cabinet-01', model=None):
     """Reuse frozen recognition, but re-read original video for all action evidence."""
     from .pipeline import digest, render_report, structured
 
     source_run, output = Path(source_run).resolve(), Path(output).resolve()
     if source_run == output or source_run in output.parents or output in source_run.parents:
         raise ValueError('Action experiment output must be separate from the source run')
-    client = Client(Settings.load(), output)
+    settings = Settings.load()
+    if model:
+        settings.model = model
+    client = Client(settings, output)
     if database is not None:
         from .store import Store
         store = Store(database)

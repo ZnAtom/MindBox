@@ -10,3 +10,13 @@ services:
       - ./var:/app/var
     init: true
     command: ["python", "-m", "app.cli", "batch", "/data", "--max-frames", "8"]
+  asr:
+    profiles: ["asr"]
+    build:
+      context: .
+      dockerfile: Dockerfile.asr
+    volumes:
+      - ./var:/app/var
+      - ./var/models:/models
+    init: true
+    command: ["python", "-m", "app.asr", "--help"]

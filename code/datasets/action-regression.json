@@ -11,6 +11,8 @@
     "v5": {"candidates": {"obj01": "candy", "obj02": "ambiguous", "obj03": "chicken"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
     "v6": {"candidates": {"obj01": "gluten", "obj02": "chicken", "obj03": "candy", "obj04": "gluten"}, "ordered": false, "history": [["add", "candy"], ["add", "gluten"], ["add", "chicken"]], "net": {"candy": "add", "gluten": "add", "chicken": "add"}},
     "v7": {"candidates": {"obj01": "chicken", "obj02": "gluten", "obj03": "candy"}, "ordered": true, "history": [["remove", "gluten"], ["add", "candy"], ["remove", "chicken"], ["return", "gluten"]], "net": {"gluten": "kept", "chicken": "remove", "candy": "add"}},
-    "v8": {"candidates": {"obj01": "drink"}, "ordered": false, "history": [["add", "drink"]], "net": {"drink": "add"}}
+    "v8": {"candidates": {"obj01": "drink"}, "ordered": false, "history": [["add", "drink"]], "net": {"drink": "add"}},
+    "v9": {"recognition_source": "batch-a-v9-cold/outputs/v9", "candidates": {"obj01": "drink"}, "ordered": false, "history": [["add", "drink"]], "net": {"drink": "add"}},
+    "v10": {"recognition_source": "batch-a-v10-cold/outputs/v10", "candidates": {"obj01": "drink", "obj02": "chicken"}, "ordered": false, "history": [["add", "chicken"]], "net": {"drink": "kept", "chicken": "add"}}
   }
 }

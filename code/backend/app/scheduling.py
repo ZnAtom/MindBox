@@ -77,27 +77,31 @@ class Scheduling:
                 raise Conflict('Cannot renew an expired or superseded lease')
 
     def create_reminder(self, cabinet_id, message, due_at, idempotency_key, channels=('web',), item_id=None, at=None):
+        with self.db.transaction() as connection:
+            return self._create_reminder(connection, cabinet_id, message, due_at, idempotency_key, channels, item_id, at)
+
+    def _create_reminder(self, connection, cabinet_id, message, due_at, idempotency_key, channels=('web',), item_id=None, at=None):
+        """Allow task activation and its reminder to commit in the same transaction."""
         due_at, at = timestamp(due_at), timestamp(at) if at else utcnow()
         channels = sorted(set(channels))
         if not message.strip() or not idempotency_key.strip() or not channels or set(channels) - {'web', 'voice'}:
             raise DatabaseError('Reminder requires message, key and supported channels')
         body_hash = fingerprint([message, due_at, channels, item_id])
-        with self.db.transaction() as connection:
-            require(connection, 'cabinets', cabinet_id)
-            existing = connection.execute('SELECT * FROM reminders WHERE cabinet_id = ? AND idempotency_key = ?',
-                                          (cabinet_id, idempotency_key)).fetchone()
-            if existing:
-                if existing['body_hash'] != body_hash:
-                    raise Conflict('Reminder key already has different content')
-                return dict(existing)
-            if due_at <= at:
-                raise DatabaseError('New reminder must have a future due_at')
-            if item_id and require(connection, 'items', item_id)['cabinet_id'] != cabinet_id:
-                raise DatabaseError('Reminder item belongs to another cabinet')
-            identity = new_id()
-            connection.execute('INSERT INTO reminders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)',
-                (identity, cabinet_id, item_id, message, due_at, encode(channels), 'pending', idempotency_key, body_hash, at))
-            return require(connection, 'reminders', identity)
+        require(connection, 'cabinets', cabinet_id)
+        existing = connection.execute('SELECT * FROM reminders WHERE cabinet_id = ? AND idempotency_key = ?',
+                                      (cabinet_id, idempotency_key)).fetchone()
+        if existing:
+            if existing['body_hash'] != body_hash:
+                raise Conflict('Reminder key already has different content')
+            return dict(existing)
+        if due_at <= at:
+            raise DatabaseError('New reminder must have a future due_at')
+        if item_id and require(connection, 'items', item_id)['cabinet_id'] != cabinet_id:
+            raise DatabaseError('Reminder item belongs to another cabinet')
+        identity = new_id()
+        connection.execute('INSERT INTO reminders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)',
+            (identity, cabinet_id, item_id, message, due_at, encode(channels), 'pending', idempotency_key, body_hash, at))
+        return require(connection, 'reminders', identity)
 
     def trigger_due(self, at=None, grace_seconds=600):
         at = timestamp(at) if at else utcnow()
@@ -124,16 +128,19 @@ class Scheduling:
 
     def cancel_reminder(self, reminder_id):
         with self.db.transaction() as connection:
-            reminder = require(connection, 'reminders', reminder_id)
-            connection.execute("UPDATE reminders SET status = 'canceled' WHERE id = ? AND status = 'pending'", (reminder_id,))
-            deliveries = connection.execute("SELECT id FROM deliveries WHERE reminder_id = ? AND state = 'queued'", (reminder_id,)).fetchall()
-            for delivery in deliveries:
-                job = connection.execute('SELECT * FROM jobs WHERE business_key = ?', ('delivery:' + delivery['id'],)).fetchone()
-                # A worker may already have sent a claimed job. Do not claim that it was revoked.
-                if job and job['state'] == 'queued':
-                    connection.execute("UPDATE jobs SET state = 'done' WHERE id = ?", (job['id'],))
-                    connection.execute("UPDATE deliveries SET state = 'canceled' WHERE id = ?", (delivery['id'],))
-            return {'previous_status': reminder['status'], **require(connection, 'reminders', reminder_id)}
+            return self._cancel_reminder(connection, reminder_id)
+
+    def _cancel_reminder(self, connection, reminder_id):
+        reminder = require(connection, 'reminders', reminder_id)
+        connection.execute("UPDATE reminders SET status = 'canceled' WHERE id = ? AND status = 'pending'", (reminder_id,))
+        deliveries = connection.execute("SELECT id FROM deliveries WHERE reminder_id = ? AND state = 'queued'", (reminder_id,)).fetchall()
+        for delivery in deliveries:
+            job = connection.execute('SELECT * FROM jobs WHERE business_key = ?', ('delivery:' + delivery['id'],)).fetchone()
+            # A worker may already have sent a claimed job. Do not claim that it was revoked.
+            if job and job['state'] == 'queued':
+                connection.execute("UPDATE jobs SET state = 'done' WHERE id = ?", (job['id'],))
+                connection.execute("UPDATE deliveries SET state = 'canceled' WHERE id = ?", (delivery['id'],))
+        return {'previous_status': reminder['status'], **require(connection, 'reminders', reminder_id)}
 
     def acknowledge(self, delivery_id, channel, kind, at=None):
         if kind not in ('received', 'played', 'failed'):

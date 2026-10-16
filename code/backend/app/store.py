@@ -17,7 +17,8 @@ def require(connection, table, identity):
 
 
 def item_value(row):
-    return {**json.loads(row['data_json']), **{k: row[k] for k in
+    values = ItemValues.model_validate(json.loads(row['data_json'])).model_dump(mode='json')
+    return {**values, **{k: row[k] for k in
         ('id', 'cabinet_id', 'location_id', 'name', 'category', 'presence_status', 'version', 'created_at', 'updated_at')}}
 
 
@@ -474,6 +475,13 @@ class Store:
                 before = None
                 if action == 'add':
                     values = {k: candidate[k] for k in ItemValues.model_fields if k in candidate}
+                    if plan.coarse_only:
+                        if decision.patch:
+                            raise DatabaseError('Coarse insertion cannot apply detailed identity patches')
+                        category = candidate.get('category', '未知')
+                        values = {'name': '饮品' if category == '饮品' else '未知食品' if category == '食品' else '未知物品',
+                                  'category': category, 'product_match_status': 'category_only',
+                                  'field_meta': {}}
                     values['presence_status'] = 'present'
                 else:
                     before = item_value(require(connection, 'items', decision.item_id))

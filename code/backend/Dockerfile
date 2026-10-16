@@ -2,8 +2,8 @@ ARG PYTHON_IMAGE=python:3.13-slim
 FROM ${PYTHON_IMAGE}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY requirements.lock.txt ./
-RUN pip install --no-cache-dir -r requirements.lock.txt
+COPY requirements.lock.txt requirements-batch.txt ./
+RUN pip install --no-cache-dir -r requirements-batch.txt
 COPY app ./app
 COPY knowledge ./knowledge
 COPY migrations ./migrations
