@@ -1,0 +1,40 @@
+{
+  "schema_version": "mind-box-ground-truth-0.1",
+  "capture_id": "synthetic-example-only",
+  "annotation_status": "synthetic_example_not_for_evaluation",
+  "time_unit": "ms",
+  "coordinate_format": "xyxy_original_pixels",
+  "narrative": "虚构示例：片头空柜，5.2至8.4秒间放入一包零食，之后留在柜中。此文件只示范结构，不是测试素材或成绩。",
+  "objects": [
+    {
+      "object_instance_id": "human-object-001",
+      "initially_present": false,
+      "observable": true,
+      "visibility_intervals_ms": [{"start": 5000, "end": 18000}],
+      "fields": {
+        "name": "袋装零食",
+        "acceptable_names": ["零食袋", "一包零食"],
+        "brand": null,
+        "quantity": 1,
+        "unit": "piece",
+        "production_on": null,
+        "expires_on": null
+      },
+      "date_visibility": "not_visible",
+      "notes": "品牌和日期不可见，不要求算法猜。"
+    }
+  ],
+  "events": [
+    {
+      "event_id": "human-event-001",
+      "action": "add",
+      "object_instance_ids": ["human-object-001"],
+      "event_window_ms": {"start": 5200, "end": 8400},
+      "location_id": "drawer-1",
+      "observable": true
+    }
+  ],
+  "frame_annotations": [],
+  "speech_reference": [],
+  "limitations": ["示意时间均为虚构，必须用真实视频重新填写。"]
+}

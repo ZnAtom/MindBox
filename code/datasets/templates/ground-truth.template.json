@@ -1,0 +1,13 @@
+{
+  "schema_version": "mind-box-ground-truth-0.1",
+  "capture_id": "case-001",
+  "annotation_status": "not_annotated",
+  "time_unit": "ms",
+  "coordinate_format": "xyxy_original_pixels",
+  "narrative": "填写真实取放过程。空 events 在 not_annotated 状态下不代表没有事件。",
+  "objects": [],
+  "events": [],
+  "frame_annotations": [],
+  "speech_reference": [],
+  "limitations": []
+}

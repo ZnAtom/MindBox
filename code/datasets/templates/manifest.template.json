@@ -1,0 +1,22 @@
+{
+  "schema_version": "mind-box-dataset-0.1",
+  "dataset_id": "batch-001",
+  "timezone": "Asia/Shanghai",
+  "captures": [
+    {
+      "capture_id": "case-001",
+      "video_path": "raw/case-001.mp4",
+      "audio_path": null,
+      "audio_offset_ms": null,
+      "audio_timing": "embedded",
+      "started_at_utc": null,
+      "clock_quality": "unknown",
+      "device_id": null,
+      "location_id": "drawer-1",
+      "initial_inventory": null,
+      "ground_truth_path": "ground_truth/case-001.json",
+      "split": "unassigned",
+      "notes": "填写采集条件；评测答案只放 ground_truth，不作为模型上下文。"
+    }
+  ]
+}

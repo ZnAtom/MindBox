@@ -1,0 +1,12 @@
+batch-*/
+processing-runs/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.h264
+*.h265
+*.wav
+*.aac
+*.opus
+*.pcm
