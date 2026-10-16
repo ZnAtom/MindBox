@@ -78,7 +78,7 @@ manifest 从 templates 复制后填写：
 
 ## 5. 每次处理应返回什么
 
-以下是拟实现产物，不是已经可运行的命令或已有输出：
+下方是完整流水线的目标产物。当前MVP的真实产物位于`code/backend/var/runs/baseline`和`improved`，已包含帧、标框、crop、音轨、media/result/evidence JSON、HTML及审计；SAM mask、独立OCR和转写尚未生成。运行方式见[后端说明](../backend/README.md)。
 
 ```text
 processing-runs/<run_id>/
@@ -109,3 +109,9 @@ processing-runs/<run_id>/
 5. 冻结校准参数后跑留出的完整录制测试集，再决定主模型是否更换。
 
 验证数据用于评测，不用于训练；本轮无须用户先标出一套可训练类别。先得到真实失败样例，再决定是否需要增加切片、分割或跟踪复杂度。
+
+## 7. 本轮实际执行
+
+用户素材位于根目录`data/v1.mp4`至`v8.mp4`，约40秒；嵌入音轨已提取为16kHz单声道WAV，保留首PTS及共同原点，无ASR转写。首轮直接比较学校VLM给框与crop复核，未先部署Grounding DINO/SAM。
+
+`data/ans.md`在首轮全部输出完成后才阅读；没有进入提示词或本地词库。第二轮用于修正开发样本上的错误，不能视为新的独立测试集。两轮结果和局限见[实测报告](../doc/video-mvp-experiment-report.md)。

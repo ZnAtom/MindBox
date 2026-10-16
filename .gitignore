@@ -1,1 +1,12 @@
 *.mp4
+.env
+.env.*
+!.env.example
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+code/backend/var/
+data/processed/
+data/runs/

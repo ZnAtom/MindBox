@@ -2,7 +2,7 @@
 
 日期：2026-10-16，Asia/Shanghai。
 
-状态：设计提案 v0.1。用户已要求开始后端规划；本文档不表示设备接口、AI 服务或性能已经验证。
+状态：后端设计提案 + 已实现的离线视频实验。8段视频已完成两轮学校DeepSeek实测；设备上传、ASR和正式库存事务尚未实现，具体效果与限制见实测报告。
 
 | 文档 | 内容 |
 | --- | --- |
@@ -13,6 +13,9 @@
 | [完整音视频处理方案](../../proj1/project-planning/technical/video-processing-and-item-recognition-plan.md) | 本轮新要求：K230 完整音视频传电脑、选帧、开放定位与模型分工 |
 | [物品字段与时间规则](../../proj1/project-planning/technical/item-information-contract.md) | 自动名称/描述、放入时间、来源和库存校验 |
 | [视频实验数据集](../datasets/README.md) | 录制场景、目录、标注模板与拟交付产物 |
+| [视频处理TODO](video-pipeline-todo.md) | 逐项实施状态与环境阻碍 |
+| [RAG、工具与提示词](rag-tools-and-video-mvp.md) | 当前流程、置信与搜索边界 |
+| [真实视频实测报告](video-mvp-experiment-report.md) | 两轮真实结果、失败记录与后续优化 |
 
 ## 与已有资料的关系
 
@@ -25,4 +28,4 @@
 
 ## 本次交付边界
 
-建立 `code/`、`code/backend/`、`code/doc/` 并保存设计和计划。业务实现按实施计划逐步开展。
+`code/backend/app/`已实现可运行的离线视频CLI、受限工具和结果报告。完整业务服务按实施计划后续推进，不能把实验候选直接视为正式库存。
