@@ -78,7 +78,8 @@ def slots(**patch):
 def test_coarse_then_enrichment_keeps_item_presence_count_time_and_visits(scenario):
     context, saved, _, item_id = inserted(scenario)
     before = context.store.get_item(item_id)
-    assert before['name'] == '未知食品' and before['stored_at'] is None
+    assert before['name'] == '鸡胸肉' and before['stored_at'] is None
+    assert before['description'] == '白色包装鸡胸肉' and before['name_kind'] == 'attribute_description'
     receipt = enrich_candidate(context, saved['run_id'], 'c0', item_id)
     after = context.store.get_item(item_id)
     assert receipt == enrich_candidate(context, saved['run_id'], 'c0', item_id)

@@ -28,7 +28,7 @@ def enrich_candidate(context, run_id, candidate_id, item_id):
         if prior:
             return json.loads(prior[0])
     item = context.store.get_item(item_id)
-    patch = {f: candidate[f] for f in ('name', 'category', 'description', 'brand', 'variant') if candidate.get(f)}
+    patch = {f: candidate[f] for f in ('name', 'name_kind', 'category', 'description', 'brand', 'variant') if candidate.get(f)}
     patch['product_match_status'] = 'candidate'
     provenance = {f: {'source': 'vision', 'certainty': 'estimated', 'evidence_refs': refs,
                       'extractor': 'verified-crops:' + run_id} for f in patch}

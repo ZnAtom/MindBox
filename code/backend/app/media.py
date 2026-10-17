@@ -77,25 +77,22 @@ def visual_quality(sharpness, bad_exposure, width, height, *, visibility_fractio
         visibility = ('severe' if visibility_fraction < 0.45 else
                       'partial' if visibility_fraction < 0.70 else 'mostly_visible')
     occlusion = occlusion_level if occlusion_level in ('none', 'mild', 'moderate', 'severe') else 'unknown'
-    hard_reasons = []
+    warnings = []
     if blur == 'severe':
-        hard_reasons.append('severe_blur')
+        warnings.append('severe_blur')
     if exposure == 'severe':
-        hard_reasons.append('severe_exposure')
+        warnings.append('severe_exposure')
     if visibility == 'severe':
-        hard_reasons.append('low_visible_fraction')
+        warnings.append('low_visible_fraction')
     if occlusion == 'severe':
-        hard_reasons.append('severe_occlusion')
+        warnings.append('severe_occlusion')
     if edge_contacts >= 2:
-        hard_reasons.append('crop_touches_multiple_image_edges')
-    tier = 'poor' if hard_reasons else 'soft' if blur == 'soft' or exposure == 'elevated' or visibility == 'partial' or occlusion == 'moderate' else 'clear'
-    sharpness_score = min(1.0, max(0.0, math.log1p(max(0.0, sharpness)) / math.log1p(1500)))
-    score = round(max(0.0, min(1.0, sharpness_score * (1 - min(1.0, bad_exposure)) *
-                             (0.6 if visibility == 'partial' else 1.0)), 4)
+        warnings.append('crop_touches_multiple_image_edges')
+    tier = 'poor' if warnings else 'soft' if blur == 'soft' or exposure == 'elevated' or visibility == 'partial' or occlusion == 'moderate' else 'clear'
     return {'tier': tier, 'blur': blur, 'exposure': exposure, 'visibility': visibility,
-            'occlusion': occlusion, 'score': score, 'sharpness': round(float(sharpness), 2),
+            'occlusion': occlusion, 'sharpness': round(float(sharpness), 2),
             'bad_exposure': round(float(bad_exposure), 4), 'width': int(width), 'height': int(height),
-            'edge_contacts': int(edge_contacts), 'warnings': hard_reasons,
+            'edge_contacts': int(edge_contacts), 'warnings': warnings,
             'visibility_fraction_estimate': visibility_fraction,
             'threshold_status': 'provisional_uncalibrated',
             'policy': 'diagnostic_only_identity_and_action_evidence_decide_storage'}
@@ -150,6 +147,47 @@ def action_frames(path, output, fps=8, start_ms=0, end_ms=None, max_frames=480):
     if not frames:
         raise ValueError('No timestamped frames in action range')
     return frames
+
+
+def iter_action_frames(path, output, fps=12):
+    """Yield one delivered frame at a time, preserving the final frame and original PTS."""
+    path, output = Path(path), Path(output)
+    (output / 'action-frames').mkdir(parents=True, exist_ok=True)
+    if not 1 <= fps <= 30:
+        raise ValueError('Invalid causal sampling fps')
+    next_ms, last, emitted_pts = 0, None, None
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        origin = (container.start_time or 0) / av.time_base
+        rotation = int(stream.metadata.get('rotate', '0')) % 360
+
+        def save(frame, ms):
+            image = frame.to_image()
+            if rotation:
+                image = image.rotate(-rotation, expand=True)
+            image.thumbnail((1280, 1280))
+            identity = f'{path.stem}-t{frame.pts}'
+            filename = f'action-frames/{identity}.jpg'
+            image.save(output / filename, quality=94)
+            sharpness, exposure, _ = signature(np.asarray(image))
+            return {'id': identity, 'file': filename, 'pts': frame.pts, 'media_time_ms': ms,
+                    'width': image.width, 'height': image.height,
+                    'sharpness': sharpness, 'bad_exposure': exposure}
+
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            ms = round((float(frame.pts * frame.time_base) - origin) * 1000)
+            if ms < 0:
+                continue
+            last = (frame, ms)
+            if ms < next_ms:
+                continue
+            emitted_pts = frame.pts
+            yield save(frame, ms)
+            next_ms = ms + 1000 / fps
+        if last and last[0].pts != emitted_pts:
+            yield save(*last)
 
 
 def prepare_video(path, output, max_frames=8, scan_fps=3, extract_audio=True):

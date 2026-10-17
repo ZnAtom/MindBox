@@ -167,3 +167,17 @@ docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/do
 ```
 
 speech目标目录必须不存在，副本沿用冻结源manifest/scope以便重现；不会回写源库，也不会新增库存。`--removal-policy-reason`仅用于v10，省略则只生成真实音频要求的任务。当前v9已通过饮品类别兼容规则关联、v10已关联但任务缺日期/时间，均如实报告。架构统一见[处理流程](../doc/processing-flow.md)，结果与修改建议见[评测](../doc/evaluation-and-lessons.md)。
+
+## P0-D/E/F 因果视频回放
+
+独立实验入口，读取现有`.env`，只写指定新实验目录的SQLite/证据。物品种类不限，不需要逐视频手工画边界；名称可用可见外观。它按已到达帧回放，不接设备流、不启动WebUI，也尚未自动编排语音/RAG/日程。
+
+```powershell
+.\.venv\Scripts\python.exe -m app.causal ../../data/v7.mp4 --root var/experiments/causal-v7-new --max-calls 24
+.\.venv\Scripts\python.exe -m app.causal ../../data/v7.mp4 --root var/experiments/causal-v7-new --max-calls 24 --resume
+.\.venv\Scripts\python.exe -m pytest tests/test_causal.py -q
+```
+
+默认12fps、最长750ms微批、750ms历史上下文；每次最多16张全帧+4张历史crop，学校接口总限20图。`--max-calls`是微批上限，独立复核/格式修复/HTTP重试另计。只用首帧登记已存在物品，回执明确`filmed_inventory_action=false`；remove/return使用真实已有item_id。
+
+输出`causal/session.json`、`observation-NNN.json`、`tools-NNN.json`、`prompt-images-NNN.json`、原帧/crops/operations和`api/api-attempts.jsonl`。session的`results`为最小库存结果；`completed_with_pending`不是通过，须一起看逐步失败、台账pending、真实回执和最终库。恢复仅允许相同代码/配置/输入；修改后请新建实验，不能覆盖旧结果。模糊阈值解释与最终框图见[处理流程](../doc/processing-flow.md)，最新真实视频结果见[评测](../doc/evaluation-and-lessons.md)。
