@@ -10,6 +10,14 @@ const proxy = {
     target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
     changeOrigin: true,
   },
+  '/api/audio': {
+    target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
+    changeOrigin: true,
+  },
+  '/api/vision': {
+    target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
+    changeOrigin: true,
+  },
 };
 
 export default defineConfig({
@@ -21,6 +29,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         models: fileURLToPath(new URL('./models.html', import.meta.url)),
+        vision: fileURLToPath(new URL('./vision.html', import.meta.url)),
       },
     },
   },

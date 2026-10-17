@@ -1,0 +1,47 @@
+* { box-sizing: border-box; }
+:root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #202323; background: #f6f7f7; font-size: 14px; letter-spacing: 0; }
+body { margin: 0; }
+button { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .45; }
+button:focus-visible, a:focus-visible { outline: 2px solid #3477c8; outline-offset: 4px; }
+[hidden] { display: none !important; }
+.toolbar { min-height: 72px; padding: 16px 32px; border-bottom: 1px solid #dadfdd; display: flex; align-items: center; gap: 24px; background: #fff; }
+.brand { font-size: 22px; font-weight: 650; color: inherit; text-decoration: none; white-space: nowrap; }
+.toolbar > span { color: #69716e; }
+nav { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+svg { width: 18px; height: 18px; flex-shrink: 0; }
+.tool { width: 36px; height: 36px; display: grid; place-items: center; border: 0; color: inherit; background: transparent; border-radius: 4px; }
+.tool:hover { background: #eef1ef; }
+.command { border: 1px solid #cbd2ce; color: #29332e; background: #fff; border-radius: 4px; min-height: 38px; padding: 8px 12px; display: inline-flex; gap: 8px; align-items: center; justify-content: center; font-size: 13px; }
+.command:hover:enabled { background: #eef3f0; }
+.layout { max-width: 1440px; margin: 0 auto; padding: 32px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; }
+.section-heading { min-height: 38px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 22px; font-weight: 600; }
+h2 { margin: 0 0 20px; font-size: 14px; font-weight: 600; }
+.badge { font-size: 12px; color: #7b5b12; }
+.badge[data-state="tracking"] { color: #276c53; }
+.camera { width: 100%; aspect-ratio: 16 / 9; background: #e7ebe8; display: grid; place-items: center; overflow: hidden; }
+.camera > * { grid-area: 1 / 1; }
+.camera img { display: block; width: 100%; height: 100%; object-fit: contain; min-height: 0; }
+.camera canvas { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; min-width: 0; min-height: 0; }
+.camera > span { color: #66726b; font-size: 13px; }
+.camera-footer { padding: 12px 0; color: #657169; font-size: 12px; display: flex; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.controls { padding: 8px 0 0 28px; border-left: 1px solid #dbe0dd; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+th { color: #6f7872; font-weight: 400; text-align: left; }
+th:last-child, td:last-child { text-align: right; }
+th, td { padding: 13px 0; border-bottom: 1px solid #dbe0dd; overflow-wrap: anywhere; }
+td:nth-child(2) { color: #276c53; }
+td[data-known="false"] { color: #7b5b12; }
+.observation { border-top: 1px solid #dbe0dd; margin-top: 32px; padding-top: 24px; }
+dl { display: grid; grid-template-columns: 1fr auto; gap: 16px; font-size: 12px; }
+dt { color: #657169; }
+dd { margin: 0; }
+.message { color: #7b5b12; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; min-height: 20px; }
+.print-sheet { display: none; }
+@media (max-width: 800px) { .layout { grid-template-columns: 1fr; gap: 24px; padding: 24px 18px; } .controls { border-left: 0; border-top: 1px solid #dbe0dd; padding: 24px 0; } .toolbar { padding: 14px 18px; gap: 12px; flex-wrap: wrap; } .toolbar > span { font-size: 12px; } nav { gap: 4px; } h1 { font-size: 20px; } }
+@media (max-width: 420px) { .toolbar > span { display: none; } .brand { font-size: 20px; } }
+@page { size: A4; margin: 15mm; }
+@media print { :root { color: #000; background: #fff; } .toolbar, .layout { display: none; } .print-sheet { display: block; } .print-sheet h1 { font-size: 20pt; margin: 0 0 12mm; } .print-grid { display: grid; grid-template-columns: repeat(2, 80mm); gap: 10mm 8mm; } figure { margin: 0; text-align: center; break-inside: avoid; } figure img { width: 62.5mm; height: 62.5mm; display: block; margin: 0 auto; image-rendering: pixelated; } figcaption { font-size: 12pt; margin-top: 3mm; } .print-sheet > p { margin-top: 12mm; font-size: 10pt; } }
