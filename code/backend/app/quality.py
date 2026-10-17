@@ -18,11 +18,13 @@ def assess_quality(item, evidence):
     reasons = []
     if item.get('target_kind') != 'movable_item':
         reasons.append('movable_object_not_supported')
-    if item.get('localization_status') != 'usable':
+    if item.get('localization_status') not in ('usable', 'partial'):
         reasons.append('unique_object_crop_not_usable')
     if item.get('object_support') == 'low':
         reasons.append('physical_object_not_recognizable')
     warnings = sorted({warning for view in views for warning in view['warnings']})
+    if item.get('localization_status') == 'partial':
+        warnings.append('partial_crop_requires_temporal_association')
     if any(view['tier'] != 'clear' for view in views):
         warnings.append('degraded_image_allow_coarse_description')
     if item.get('occlusion_level') in ('moderate', 'severe'):

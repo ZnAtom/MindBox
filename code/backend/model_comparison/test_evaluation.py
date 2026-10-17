@@ -12,6 +12,10 @@ CASE = {'ordered': False, 'history': [['add', 'drink']], 'net': {'drink': 'add'}
 REVIEW = {'mapping': {'new-1': 'drink'}, 'basic_label_errors': [], 'result_sha256': 'test'}
 
 
+def test_deepseek_dense_uses_the_same_scoring_as_gpt_dense():
+    assert score_case(dense_result(), CASE, REVIEW, 'deepseek_dense') == score_case(dense_result(), CASE, REVIEW, 'gpt_dense')
+
+
 def test_wrong_name_does_not_erase_correct_motion_but_cannot_pass_whole_case():
     result = score_case(dense_result(), CASE, {**REVIEW, 'basic_label_errors': ['called honey']}, 'gpt_dense')
     assert result['events_exact'] and result['net_exact'] and result['instances_exact']

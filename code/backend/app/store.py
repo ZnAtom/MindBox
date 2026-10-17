@@ -274,6 +274,44 @@ class Store:
                     'inventory_known': bool(cabinet['inventory_known']), 'items': items, 'pending_count': unresolved,
                     'completeness': 'known_baseline' if cabinet['inventory_known'] else 'unknown_baseline'}
 
+    def register_visible_baseline(self, run_id, candidate_id, location_id):
+        """Register a first-frame observation, explicitly distinct from a filmed insertion."""
+        with self.db.transaction() as connection:
+            run = require(connection, 'processing_runs', run_id)
+            operation = require(connection, 'operations', run['operation_id'])
+            key = 'baseline:' + run_id + ':' + candidate_id
+            prior = connection.execute('SELECT receipt_json FROM inventory_commits WHERE cabinet_id=? AND idempotency_key=?',
+                                       (operation['cabinet_id'], key)).fetchone()
+            if prior:
+                return json.loads(prior[0])
+            result = json.loads(run['result_json'])
+            candidate = next(c for c in result['items'] if c['candidate_id'] == candidate_id)
+            if (run['status'] != 'completed' or operation['state'] != 'ready' or
+                    result.get('registration_kind') != 'visible_initial_baseline' or
+                    candidate.get('target_kind') != 'movable_item' or
+                    candidate.get('localization_status') not in ('usable', 'partial') or
+                    candidate.get('object_support') == 'low'):
+                raise DatabaseError('A usable initial observation is required')
+            observations = {r['local_ref']: r['id'] for r in connection.execute(
+                'SELECT id,local_ref FROM observations WHERE run_id=?', (run_id,))}
+            refs = [observations[r] for r in candidate['evidence_refs']]
+            values = {**descriptive_identity(candidate), 'presence_status': 'present',
+                      'location_id': location_id, 'product_match_status': 'category_only'}
+            values['field_meta'] = {field: {'source': 'vision', 'certainty': 'estimated',
+                'evidence_refs': refs, 'extractor': 'initial-observation:' + run_id} for field in values}
+            receipt, _ = self._start_commit(connection, operation['cabinet_id'], key,
+                {'kind': 'visible_initial_baseline', 'candidate_id': candidate_id, 'run_id': run_id,
+                 'location_id': location_id}, run['base_revision'], 'policy:visible-baseline', operation['id'], run_id)
+            _, item = self._write_item(connection, operation['cabinet_id'], values)
+            for ref in refs:
+                connection.execute('INSERT INTO item_observations VALUES (?,?)', (item['id'], ref))
+            self._change(connection, receipt, 'add', None, item, refs, 0)
+            self._visit(connection, item['id'], True, operation['id'], refs)
+            receipt['registration_kind'] = 'visible_initial_baseline'
+            receipt['filmed_inventory_action'] = False
+            connection.execute("UPDATE operations SET state='committed',committed_at=? WHERE id=?", (utcnow(), operation['id']))
+            return self._finish_commit(connection, receipt)
+
     def get_item(self, item_id):
         with self.db.connect() as connection:
             item = item_value(require(connection, 'items', item_id))

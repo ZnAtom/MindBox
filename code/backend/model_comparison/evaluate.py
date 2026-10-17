@@ -18,7 +18,7 @@ def load(path):
 
 
 def raw_objects(result, group):
-    return result.get('objects', []) if group == 'gpt_dense' else result.get('items', [])
+    return result.get('objects', []) if group.endswith('_dense') else result.get('items', [])
 
 
 def inspect(root):
@@ -54,7 +54,7 @@ def score_case(result, case, review, group):
     unique_correct = {key for key, count in counts.items() if key in expected_ids and count == 1}
     instances_exact = len(objects) == len(expected_ids) and unique_correct == expected_ids
     recognition_exact = instances_exact and not review['basic_label_errors']
-    if group == 'gpt_dense':
+    if group.endswith('_dense'):
         events = [(e['kind'], mapping.get(e['object_id'], 'unmapped')) for e in result.get('events', [])]
         nets = [(mapping.get(n['object_id'], 'unmapped'), n['change']) for n in result.get('net_changes', [])]
         abstained = any(obj['identity_uncertain'] for obj in objects) or any(n[1] == 'unknown' for n in nets) or any(e[0] == 'uncertain' for e in events)

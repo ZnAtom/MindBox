@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import time
 
 import httpx
@@ -13,8 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.client import Client, content, image_part, write_json
 from app.config import ROOT, Settings
-from app.media import action_frames, sheet
-from app.pipeline import process, structured
+from model_comparison.dense_transport import structured
 from model_comparison.responses_client import ResponsesClient
 
 WORKSPACE = ROOT.parents[1]
@@ -115,20 +115,45 @@ net_changes覆盖全部objects，change只用add/remove/kept/not_present/unknown
 '''
 
 
-def dense(video, destination, client):
+def dense(video, destination, client, *, frozen_source=None, presentation='individual'):
     destination.mkdir(parents=True, exist_ok=True)
     existing = destination / 'result.json'
     if existing.exists():
         return json.loads(existing.read_text(encoding='utf-8'))
     start = time.monotonic()
-    frames = action_frames(video, destination, fps=4, max_frames=240)
-    write_json(destination / 'frames.json', {'sampling_fps': 4, 'frames': frames,
-               'input_sha256': digest(video), 'prompt_sha256': hashlib.sha256(DENSE_PROMPT.encode()).hexdigest()})
-    sheet(frames, destination, destination / 'contact-sheet.jpg')
+    if frozen_source is not None:
+        metadata = json.loads((frozen_source / 'frames.json').read_text(encoding='utf-8'))
+        if metadata['input_sha256'] != digest(video) or metadata['prompt_sha256'] != hashlib.sha256(DENSE_PROMPT.encode()).hexdigest():
+            raise ValueError('Frozen video or prompt differs')
+        frames = metadata['frames']
+        for frame in frames:
+            source = (frozen_source / frame['file']).resolve()
+            target = (destination / frame['file']).resolve()
+            if not source.is_relative_to(frozen_source.resolve()) or not target.is_relative_to(destination.resolve()):
+                raise ValueError('Frame path escapes experiment')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            if digest(source) != digest(target):
+                raise ValueError('Frozen image copy differs')
+        shutil.copyfile(frozen_source / 'frames.json', destination / 'frames.json')
+        shutil.copyfile(frozen_source / 'contact-sheet.jpg', destination / 'contact-sheet.jpg')
+    else:
+        from app.media import action_frames, sheet
+
+        frames = action_frames(video, destination, fps=4, max_frames=240)
+        write_json(destination / 'frames.json', {'sampling_fps': 4, 'frames': frames,
+                   'input_sha256': digest(video), 'prompt_sha256': hashlib.sha256(DENSE_PROMPT.encode()).hexdigest()})
+        sheet(frames, destination, destination / 'contact-sheet.jpg')
     parts = [{'type': 'text', 'text': '以下是完整时间范围的均匀密集帧；没有额外库存上下文。'}]
     for frame in frames:
         parts += [{'type': 'text', 'text': f'frame_id={frame["id"]}; media_time_ms={frame["media_time_ms"]}'},
                   image_part(destination / frame['file'])]
+    if presentation == 'pairs':
+        from model_comparison.paired_frames import paired_parts
+
+        parts = paired_parts(frames, destination)
+    elif presentation != 'individual':
+        raise ValueError('Unknown frame presentation')
 
     def validate(value):
         objects = {o.object_id for o in value.objects}
@@ -195,6 +220,8 @@ def run(root, model, groups, videos):
             if group == 'gpt_dense':
                 result = dense(video, destination / name, client)
             else:
+                from app.pipeline import process
+
                 result = process(video, destination / name, client, 10, resume=True)
             results.append(result)
             write_json(destination / 'summary.json', results)

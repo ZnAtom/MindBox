@@ -12,7 +12,7 @@
 | observation_id / frame_id | 数据库证据ID与本地产物引用；帧ID可能含PTS，时间读media_time_ms |
 | item_id | 一件实物及其进出历史；同袋取出再放回复用，同SKU另一袋新建 |
 | product_id | 可复用商品/物品类型档案；不能代替实物身份 |
-| track_id（待实现） | 会话内轨迹；断轨后须证据关联，不能直接新增第二件 |
+| track_id | 新因果入口的会话内轨迹ID，由模型关联、程序台账持久化；不是独立运动跟踪器，不能跨会话当item_id |
 | utterance_id | 音轨最终语句、版本、原话及时间窗；当前按同视频/音轨建立稳定ID |
 | task_command / reminder / delivery ID | 用户意图草稿、一次发生、某渠道投递，三者不同 |
 
@@ -62,7 +62,7 @@ flowchart LR
 
 | 字段 | 来源与未知处理 |
 | --- | --- |
-| name / category / description | 可仅饮品/零食/未知食品；描述保留可见外观，有证据再细化 |
+| name / name_kind / category / description | 粗类别或外观名称均可；name_kind为specific/attribute_description/unknown，视觉初始名称为attribute_description；未知袋子不猜食品 |
 | brand / variant / product_id | 可空；品牌、口味、型号属于补全，不参与粗存门槛 |
 | quantity / unit | 有数量依据才填，混框不算一件；null不否定已有一条实物记录 |
 | presence_status | present/unseen/removed/uncertain；未见不自动removed |
@@ -74,7 +74,7 @@ flowchart LR
 | opened_at / review_at / notes | 开封有证据，检查建议不等于有效期；备注不能绕过正式日期校验 |
 | created_at / updated_at / version | 系统处理与版本，不冒充采集/放入时间 |
 
-当前没有独立net_content/barcode/aliases字段或解码闭环。无需200ml、品牌或口味即可通过基本认物验收。
+当前没有独立net_content/barcode/aliases字段或解码闭环。无需200ml、品牌或口味即可通过基本认物验收。name_kind保存在现有item值JSON中，本轮不新增或原地改SQL迁移。
 
 `field_meta={source,certainty,evidence_refs,extractor,supporting_sources}`；source可为vision/ocr/barcode/user/system/derived/unknown/speech/rag/web，certainty为recorded/estimated/unknown。枚举有web不表示允许网页直接回写。recorded是有来源，不保证用户/文字绝对无误。
 
@@ -84,16 +84,27 @@ flowchart LR
 
 状态为inside/outside/absent/occluded/unknown。outside必须在箱外可见；absent须箱内清楚且无目标，不能由反光/关门/无SIFT框推断。before所有引用必须早于after，且仅引用实际提供帧。at_rest表示抽屉承托/已松手，手靠近不等于抓取。
 
-`window-states.json`保存普通观察、initial_observation、review_observation、review_decision、supplied_frame_ids/input_kind。当前`review_conflicts`只按before/after标签比较presence，未对齐不同时间，是已定位缺口；同帧相反放稳/在柜判断仍必须保留冲突。修复契约应保存每条声明的真实时间与来源，不能整窗覆盖其他物品。
+旧入口`window-states.json`保存普通观察、initial_observation、review_observation、review_decision、supplied_frame_ids/input_kind。P0-A已按媒体时间约束before/after修正方向；同帧相反放稳/在柜判断仍保留冲突，不能整窗覆盖其他物品。
 
 `operation_analysis`包含event_candidates、net_changes、pending、observation_gaps、baseline_observations、snapshot_checkpoints、placement_completions、cancelled_placements、unobserved_prefixes。跨窗事件保存evidence_window_ids和state_evidence，不把箱外正证据改写成清楚缺失。supported_endpoints/consistent均不是提交回执，也不是正确率。
 
-`CoarseIntake.assess`当前policy为single-insertion-evidence-v2，路线stable_state_comparison/direct_crossing。单新增、usable物体、同实例、放稳、时间、可见性和无未决冲突成立即可；身份细节缺失不拒绝。当前不支持混合多事件自动准入。
+旧入口`CoarseIntake.assess`当前policy为single-insertion-evidence-v2，路线stable_state_comparison/direct_crossing。单新增、可辨物体、同实例、放稳、时间、可见性和无未决冲突成立即可；身份细节缺失不拒绝。仍不支持整段混合多事件自动准入；新因果入口把动作拆成独立operation提交。
+
+新入口`app.causal`契约：
+
+- 父session_id复用现有media_captures.id；每个子operation_id来自session、track、动作类型及证据时间窗的哈希，已提交operation直接返回原回执。没有额外capture_session表。
+- `causal/session.json`保存watermark_ms、步骤、轨迹台账、真实事务回执、最终inventory和results；轨迹pending与数据库pending_candidates分开，DB的pending_count不能代替会话未决数量。
+- TrackPoint位置为inside/outside/frame_edge/out_of_frame/occluded/unknown，带frame_id、归一化bbox、at_rest和逐点drawer_phase。不可见点bbox=null；只用NEW已到达帧更新，旧帧仅作上下文。out_of_frame要求看见视频边缘离开过程；关屉遮挡保留原库存。
+- 首帧原有实物可在隔离演示库调用register_visible_baseline，回执registration_kind=visible_initial_baseline、filmed_inventory_action=false；它创建初始实物记录和访问，不编造本视频的add事件，不把未知整柜变为空柜/已盘清。
+- `results`按已提交回执列item_id、track_id、kind、name/name_kind/category/description、location_id、stored_at、media_window_ms、support、evidence_refs、quality、operation_id/commit_id/revision。名称为当前库存投影，事件窗口仍为当时证据；support不是概率，probability=null。历史录像缺可信绝对时钟，stored_at保持null，媒体毫秒仍可追溯。
+- visual_quality为诊断，含sharpness、曝光风险、原始尺寸和可见比例估计；严重模糊不单独拒绝。usable或可辨认partial允许，错框/混框/低实物支持度pending，取放证据另验。
+- 解码完成仍有未决时status=completed_with_pending；完成读取不等于业务验收成功。中途DB异常为paused_error，同配置resume可重取确定性回执。新配置/提示/输入变更需新实验目录。
 
 | 调用 | 边界 |
 | --- | --- |
 | Store.import_run | 归档观察/候选/待处理，不改变库存；相同输入重传复用 |
 | Store.get_inventory_snapshot | 同读事务读取真实items/revision；未知基线单列，不把空DB当已知空柜 |
+| Store.register_visible_baseline | 仅接受标注为初始观察的完成run，验证实物与定位，明确返回非视频放入的初始登记回执；当前供因果隔离实验使用 |
 | Store.commit_inventory | 应用显式计划，验证当前attempt、证据归属、item版本、柜体revision及幂等；短事务内写库存/历史/回执/jobs |
 | Enrichment.apply | 名称/类别/描述/品牌/款式/商品关联白名单；不改数量、presence、stored_at，不再add；人工新纠正和陈旧响应冲突 |
 | SpeechService.apply_facts | 仅已关联语句的日期/期限事实；无关item引用、未知年、冲突均不能覆盖正式日期 |

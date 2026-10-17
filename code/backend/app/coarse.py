@@ -34,7 +34,7 @@ class CoarseIntake:
         item = next(i for i in result['items'] if i['candidate_id'] == cid)
         quality = assess_quality(item, result.get('evidence', {}))
         reasons.extend(quality['reasons'])
-        if item.get('localization_status') != 'usable' or item.get('target_kind') != 'movable_item':
+        if quality['status'] == 'pending':
             reasons.append('object_crop_not_verified_usable')
         snapshots = artifacts.get('snapshot-states.json', {}).get('objects', [])
         snapshot = next((o for o in snapshots if o['candidate_id'] == cid), None)

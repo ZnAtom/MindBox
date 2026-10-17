@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { itemShape } from './item-visuals.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -109,9 +110,9 @@ export function createCabinet(container, onSelect) {
     contents.push(content);
   }
 
-  function itemModel(kind) {
+  function itemModel(shape) {
     const group = new THREE.Group();
-    if (kind === 'cable' || kind === 'headphones') {
+    if (shape === 'cable') {
       const key = 'cable-coil';
       if (!geometries.has(key)) geometries.set(key, new THREE.TorusGeometry(0.19, 0.024, 6, 32));
       for (let i = 0; i < 3; i++) {
@@ -123,14 +124,20 @@ export function createCabinet(container, onSelect) {
       }
       box(group, [0.12, 0.09, 0.12], [0.24, 0.05, 0.1], materials.paper, 0.014);
       box(group, [0.06, 0.05, 0.08], [0.24, 0.05, 0.19], materials.handle, 0.01);
-    } else if (kind === 'pill' || kind === 'milk') {
+    } else if (shape === 'can') {
+      cylinder(group, 0.16, 0.44, [0, 0.22, 0], materials.bottle);
+      cylinder(group, 0.164, 0.025, [0, 0.44, 0], materials.rail);
+      cylinder(group, 0.164, 0.025, [0, 0.01, 0], materials.rail);
+      box(group, [0.06, 0.012, 0.1], [0, 0.46, 0], materials.handle, 0.004);
+    } else if (shape === 'bottle') {
       cylinder(group, 0.17, 0.39, [0, 0.195, 0], materials.bottle);
       cylinder(group, 0.171, 0.15, [0, 0.19, 0], materials.band);
       cylinder(group, 0.125, 0.08, [0, 0.43, 0], materials.paper);
     } else {
-      const snack = kind === 'cookie' || kind === 'coffee';
-      box(group, [0.65, 0.25, 0.4], [0, 0.125, 0], snack ? materials.item : materials.paper, 0.035);
-      box(group, [0.18, 0.256, 0.405], [0.08, 0.125, 0], materials.band, 0.018);
+      const snack = shape === 'packet';
+      const height = shape === 'flat' ? 0.09 : 0.25;
+      box(group, [0.65, height, 0.4], [0, height / 2, 0], snack ? materials.item : materials.paper, 0.025);
+      box(group, [0.18, height + 0.006, 0.405], [0.08, height / 2, 0], materials.band, 0.018);
       if (snack) for (const x of [-0.31, 0.31]) box(group, [0.04, 0.16, 0.38], [x, 0.12, 0], materials.paper, 0.012);
     }
     return group;
@@ -145,10 +152,11 @@ export function createCabinet(container, onSelect) {
     }
     for (let drawer = 1; drawer <= 3; drawer++) {
       visibleItems.filter((item) => item.drawer === drawer).forEach((item, index) => {
+        const shape = itemShape(item);
         let entry = inventory.get(item.id);
-        if (entry && entry.kind !== item.kind) { entry.mesh.removeFromParent(); inventory.delete(item.id); entry = null; }
+        if (entry && entry.shape !== shape) { entry.mesh.removeFromParent(); inventory.delete(item.id); entry = null; }
         if (!entry) {
-          entry = { mesh: itemModel(item.kind), kind: item.kind };
+          entry = { mesh: itemModel(shape), shape };
           inventory.set(item.id, entry);
         }
         contents[drawer - 1].add(entry.mesh);
@@ -319,7 +327,7 @@ export function createCabinet(container, onSelect) {
       reducedMotion = reduced || matchMedia('(prefers-reduced-motion: reduce)').matches;
       targets = open.map((value) => value ? 1.3 : 0);
       if (instant) drawers.forEach((mesh, i) => { mesh.position.z = targets[i]; });
-      const signature = JSON.stringify(items.map((item) => [item.id, item.drawer, item.kind]));
+      const signature = JSON.stringify(items.map((item) => [item.id, item.drawer, itemShape(item)]));
       if (signature !== inventorySignature) { syncInventory(items); inventorySignature = signature; }
       scene.background = new THREE.Color(dark ? '#1b1c1e' : '#f2f2f2');
       fronts.forEach((front, i) => {
@@ -331,7 +339,7 @@ export function createCabinet(container, onSelect) {
     playTransfer({ direction, item, drawer, onFrame, onComplete }) {
       clearTransfer();
       if (contextLost) { onComplete?.(); return; }
-      const mesh = itemModel(item.kind);
+      const mesh = itemModel(itemShape(item));
       mesh.visible = false;
       transferLayer.add(mesh);
       const stored = inventory.get(item.id);

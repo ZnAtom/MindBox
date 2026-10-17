@@ -1,11 +1,18 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck } from 'lucide';
+import { samplePhotos } from './item-visuals.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck };
+const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+function itemVisual(item, size = 'thumb') {
+  const photo = item.photo;
+  const symbol = iconNames.has(item.kind) ? item.kind : 'package';
+  return `<span class="item-visual item-visual--${size} ${photo?.mode === 'cutout' ? 'is-cutout' : ''}"><span class="photo-fallback">${icon(symbol)}</span>${photo?.thumbnailUrl ? `<img data-item-photo src="${esc(photo.thumbnailUrl)}" alt="" width="480" height="480" decoding="async" ${size === 'thumb' ? 'loading="lazy"' : ''}>` : ''}</span>`;
+}
 const storageKey = 'mind-box-preview-v2';
 const drawerNames = ['零食与补给', '日常用品', '数码与随身'];
 const ordinals = ['第一层', '第二层', '第三层'];
@@ -25,11 +32,19 @@ function dateLabel(date) { return date === localDate() ? '今天' : date === loc
 function makeItem(id, name, drawer, kind, days, expiry = '', note = '', voice = '') {
   return { id, name, drawer, kind, storedOn: localDate(-days), expiry, note, voice };
 }
+function photoFixtures() {
+  return [
+    { ...makeItem('sample-cola', '可乐', 1, 'cup-soda', 2), shape: 'can', photo: samplePhotos.cola },
+    { ...makeItem('sample-chicken', '鸡胸肉', 1, 'package', 1, '', '保存方式与保质期以包装为准。'), shape: 'packet', photo: samplePhotos.chicken },
+    { ...makeItem('sample-tea', '瓶装茶', 1, 'milk', 3), shape: 'bottle', photo: samplePhotos.tea },
+  ];
+}
 function fixtures() {
   return {
-    version: 2, theme: 'light', suggestions: true, reducedMotion: false,
+    version: 2, photoSamplesVersion: 1, theme: 'light', suggestions: true, reducedMotion: false,
     devices: [
       { id: 'mb-01', code: '01', name: '宿舍收纳柜', open: [false, false, false], drawerNames: [...drawerNames], items: [
+        ...photoFixtures(),
         makeItem('nuts', '混合坚果', 1, 'cookie', 6, localDate(12)),
         makeItem('biscuit', '燕麦饼干', 1, 'cookie', 4, localDate(30)),
         makeItem('seaweed', '海苔', 1, 'package', 2, localDate(60)),
@@ -56,9 +71,16 @@ let state = fixtures();
 try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
   if (saved?.version === 2 && Array.isArray(saved.devices) && saved.devices.length && saved.devices.every((device) => typeof device.id === 'string' && typeof device.name === 'string' && Array.isArray(device.items) && Array.isArray(device.reminders) && Array.isArray(device.activity) && device.open?.length === 3 && device.drawerNames?.length === 3)) {
-    state = { ...state, ...saved };
+    state = { ...state, ...saved, photoSamplesVersion: saved.photoSamplesVersion || 0 };
   }
 } catch { /* An unavailable or damaged local preview store must not block the UI. */ }
+// Add the new samples once while preserving existing edits and later removals.
+const needsPhotoSamples = state.photoSamplesVersion !== 1;
+if (needsPhotoSamples) {
+  const device = state.devices.find((entry) => entry.id === 'mb-01');
+  if (device) device.items.unshift(...photoFixtures().filter((item) => !device.items.some((entry) => entry.id === item.id)));
+  state.photoSamplesVersion = 1;
+}
 let activeId = state.devices[0].id;
 let selectedDrawer = 1;
 let activeTab = 'overview';
@@ -71,6 +93,7 @@ let cabinet;
 let storageWarningShown = false;
 let transferFeedback = null;
 let receiptTimer;
+let demoPhotoIndex = 0;
 
 function persist() {
   try { localStorage.setItem(storageKey, JSON.stringify(state)); }
@@ -156,7 +179,7 @@ function liveView() {
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
   if (!opened.length) return '';
   const latest = device.activity[0];
-  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button><button class="icon-button small" data-action="demo-remove" aria-label="演示取出一件物品" data-tooltip="演示取出物品">${icon('package-minus')}</button></div></div><div class="camera-empty">${icon('camera-off')}<span>摄像头未连接</span></div>${latest?.demo ? `<div class="live-event ${isNewRecord(latest.id) ? 'new-record' : ''}">${icon(latest.direction === 'in' ? 'arrow-down-left' : 'arrow-up-right')}<span>${esc(latest.title)} · 已更新预览</span><span class="change-count">${latest.direction === 'in' ? '+1' : '−1'} 件</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
+  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button><button class="icon-button small" data-action="demo-remove" aria-label="演示取出一件物品" data-tooltip="演示取出物品">${icon('package-minus')}</button></div></div><div class="camera-empty">${icon('camera-off')}<span>摄像头未连接</span></div>${latest?.demo ? `<div class="live-event ${isNewRecord(latest.id) ? 'new-record' : ''}">${latest.photo ? itemVisual(latest, 'mini') : icon(latest.direction === 'in' ? 'arrow-down-left' : 'arrow-up-right')}<span>${esc(latest.title)} · 已更新预览</span><span class="change-count">${latest.direction === 'in' ? '+1' : '−1'} 件</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
 }
 function renderOverview() {
   const device = activeDevice();
@@ -165,7 +188,7 @@ function renderOverview() {
 }
 function itemRows() {
   const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) && item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}"><span class="item-symbol">${icon(item.kind || 'package')}</span><span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1]} · ${monthDay(item.storedOn)} 放入${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : '这里还没有物品'}</div>`;
+  return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}">${itemVisual(item)}<span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1]} · ${monthDay(item.storedOn)} 放入${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : '这里还没有物品'}</div>`;
 }
 function renderItems() {
   return `<label class="search-field">${icon('search')}<input id="item-search" aria-label="搜索当前设备物品" placeholder="搜索物品" value="${esc(query)}" maxlength="80"></label><div class="filter-tabs" aria-label="按抽屉筛选">${['全部', '一层', '二层', '三层'].map((name, index) => `<button data-filter="${index}" class="${drawerFilter === index ? 'active' : ''}" aria-pressed="${drawerFilter === index}">${name}</button>`).join('')}</div><div id="item-results">${itemRows()}</div>`;
@@ -228,7 +251,10 @@ function demoInsert() {
   if (transferBusy()) return;
   const presets = [['燕麦能量棒', 'cookie'], ['维生素', 'pill'], ['USB-C 充电线', 'cable']];
   const [name, kind] = presets[selectedDrawer - 1];
-  const item = makeItem(uid(), name, selectedDrawer, kind, 0, kind === 'cable' ? '' : localDate(30), '', kind === 'cookie' ? '这个保质期是下个月今天。' : '');
+  const photoSample = selectedDrawer === 1 ? photoFixtures()[demoPhotoIndex++ % 4] : null;
+  const item = photoSample
+    ? { ...photoSample, id: uid(), storedOn: localDate() }
+    : makeItem(uid(), name, selectedDrawer, kind, 0, kind === 'cable' ? '' : localDate(30), '', kind === 'cookie' ? '这个保质期是下个月今天。' : '');
   recordTransfer('in', item);
 }
 function demoRemove() {
@@ -247,12 +273,12 @@ function recordTransfer(direction, item) {
   device.open[item.drawer - 1] = true;
   if (direction === 'in') device.items.unshift(item);
   else device.items = device.items.filter((entry) => entry.id !== item.id);
-  device.activity.unshift({ id, title: (direction === 'in' ? '放入' : '取出') + item.name, drawer: item.drawer, time: timeNow(), direction, demo: true });
+  device.activity.unshift({ id, title: (direction === 'in' ? '放入' : '取出') + item.name, drawer: item.drawer, kind: item.kind, photo: item.photo, time: timeNow(), direction, demo: true });
   transferFeedback = { id, itemId: item.id, name: item.name, drawer: item.drawer, direction, phase: 'moving' };
   $('transfer-label').hidden = true;
   $('transfer-name').textContent = item.name;
   $('transfer-direction').textContent = ordinals[item.drawer - 1] + ' / ' + (direction === 'in' ? '正在放入' : '正在取出');
-  $('transfer-symbol').innerHTML = icon(item.kind || 'package');
+  $('transfer-symbol').innerHTML = itemVisual(item, 'transfer');
   $('transfer-progress').style.transform = 'scaleX(0)';
   // Inventory is committed by this preview action; animation only visualizes that change.
   render(); persist();
@@ -302,7 +328,9 @@ function openItem(id) {
   const device = activeDevice();
   const item = device.items.find((entry) => entry.id === id);
   if (!item) return;
-  openModal('物品详情', `<form id="item-form" class="form-grid"><label class="field">名称<input name="name" value="${esc(item.name)}" maxlength="48" required></label><div class="field-row"><label class="field">所在抽屉<select name="drawer">${ordinals.map((name, index) => `<option value="${index + 1}" ${item.drawer === index + 1 ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label class="field">到期日期<input name="expiry" type="date" value="${esc(item.expiry)}"></label></div><label class="field">备注<textarea name="note" maxlength="200">${esc(item.note)}</textarea></label>${item.voice ? `<div class="source-quote"><span>随物品记录的原话</span>“${esc(item.voice)}”</div>` : ''}<div class="modal-actions"><button class="button danger" type="button" id="remove-item">${icon('arrow-up-right')}标记已取出</button>${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
+  const preview = `<div class="item-preview">${itemVisual(item, 'detail')}<div class="item-preview-copy"><h3>${esc(item.name)}</h3><p>${ordinals[item.drawer - 1]} · ${esc(device.drawerNames[item.drawer - 1])}</p><small>${esc(item.photo?.sourceLabel || '暂无物品照片')}</small></div></div>`;
+  const capture = item.photo?.originalUrl ? `<details class="capture-details"><summary>查看记录画面${icon('chevron-down')}</summary><div class="capture-image"><img data-capture-photo src="${esc(item.photo.originalUrl)}" alt="${esc(item.name)}的原始测试画面" loading="lazy"><span class="capture-error" hidden>记录画面暂不可用</span></div><p>${esc(item.photo.sourceLabel)}</p></details>` : '';
+  openModal('物品详情', `${preview}<form id="item-form" class="form-grid"><label class="field">名称<input name="name" value="${esc(item.name)}" maxlength="48" required></label><div class="field-row"><label class="field">所在抽屉<select name="drawer">${ordinals.map((name, index) => `<option value="${index + 1}" ${item.drawer === index + 1 ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label class="field">到期日期<input name="expiry" type="date" value="${esc(item.expiry)}"></label></div><label class="field">备注<textarea name="note" maxlength="200">${esc(item.note)}</textarea></label>${item.voice ? `<div class="source-quote"><span>随物品记录的原话</span>“${esc(item.voice)}”</div>` : ''}${capture}<div class="modal-actions"><button class="button danger" type="button" id="remove-item">${icon('arrow-up-right')}标记已取出</button>${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
   $('item-form').addEventListener('submit', (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -382,6 +410,21 @@ function submitCommand(event) {
   answer(matches.map((match) => `${match.item.name}在${match.device.name}的${ordinals[match.item.drawer - 1]}。`).join('\n'));
 }
 
+document.addEventListener('load', (event) => {
+  if (event.target.matches?.('[data-item-photo]')) event.target.closest('.item-visual').classList.add('photo-ready');
+}, true);
+document.addEventListener('error', (event) => {
+  const image = event.target;
+  if (image.matches?.('[data-item-photo]')) {
+    image.closest('.item-visual').classList.remove('photo-ready');
+    image.hidden = true;
+  }
+  if (image.matches?.('[data-capture-photo]')) {
+    image.hidden = true;
+    image.nextElementSibling.hidden = false;
+  }
+}, true);
+
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button');
   if (!button) return;
@@ -438,6 +481,7 @@ mobile.addEventListener('change', (event) => setPanel(event.matches));
 function updateClock() { $('clock').textContent = new Date().toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + '  ' + timeNow(); }
 updateClock(); setInterval(updateClock, 30000);
 applyTheme(); setPanel(panelCollapsed); render();
+if (needsPhotoSamples) persist();
 import('./cabinet.js').then(({ createCabinet }) => {
   cabinet = createCabinet($('viewport'), selectDrawer);
   syncModel(true);
