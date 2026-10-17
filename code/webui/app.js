@@ -1,9 +1,9 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History } from 'lucide';
 import { samplePhotos } from './item-visuals.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History };
 const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
@@ -98,6 +98,7 @@ let hardware = { connected: false, state: null };
 let camera = { connected: false, latest: null, cached_frames: 0 };
 let audio = { enabled: false, status: 'disabled' };
 let vision = { enabled: false, status: 'disabled' };
+let voiceQuery = { recorder: null, stream: null, chunks: [], recording: false, busy: false };
 // The first preview cabinet is the single physical cabinet in this prototype.
 const hardwareDeviceId = 'mb-01';
 const physicalDevice = state.devices.find((device) => device.id === hardwareDeviceId);
@@ -607,6 +608,85 @@ function commandOpen() {
   $('command-input').focus();
 }
 function answer(text) { $('command-response').textContent = text; $('command-response').hidden = false; }
+function setVoiceStatus(text) { $('voice-status').textContent = text; }
+function setVoiceButton() {
+  const button = $('record-command');
+  if (!button) return;
+  button.classList.toggle('recording', voiceQuery.recording);
+  button.classList.toggle('busy', voiceQuery.busy);
+  button.disabled = voiceQuery.busy;
+  button.setAttribute('aria-label', voiceQuery.recording ? '停止录音' : '开始录音');
+  button.dataset.tooltip = voiceQuery.recording ? '停止录音' : '开始录音';
+  button.innerHTML = icon(voiceQuery.recording ? 'square' : 'mic');
+  paintIcons();
+}
+function speakAnswer(text) {
+  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return false;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-CN';
+  utterance.rate = .98;
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+async function sendVoiceAudio(blob) {
+  voiceQuery.busy = true;
+  setVoiceStatus('正在识别并查询库存');
+  setVoiceButton();
+  try {
+    const response = await fetch('/api/voice/query', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Mind-Box-Cabinet': activeDevice().id === hardwareDeviceId ? 'cabinet-01' : activeDevice().id },
+      body: blob,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || `语音服务返回 ${response.status}`);
+    answer(`你说：${payload.transcript}\n\n${payload.answer}`);
+    setVoiceStatus(speakAnswer(payload.answer) ? '回答已播报' : '回答已返回，浏览器不支持语音合成');
+  } catch (error) {
+    answer('语音提问失败：' + error.message);
+    setVoiceStatus('语音服务不可用');
+  } finally {
+    voiceQuery.busy = false;
+    setVoiceButton();
+  }
+}
+function stopVoiceRecording() {
+  if (!voiceQuery.recorder || voiceQuery.recorder.state === 'inactive') return;
+  voiceQuery.recorder.stop();
+  voiceQuery.recording = false;
+  setVoiceStatus('正在整理录音');
+  setVoiceButton();
+}
+async function toggleVoiceRecording() {
+  if (voiceQuery.busy) return;
+  if (voiceQuery.recording) { stopVoiceRecording(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    answer('当前浏览器不支持麦克风录音。');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? { mimeType: 'audio/webm;codecs=opus' } : {};
+    const recorder = new MediaRecorder(stream, options);
+    voiceQuery = { recorder, stream, chunks: [], recording: true, busy: false };
+    recorder.addEventListener('dataavailable', (event) => { if (event.data.size) voiceQuery.chunks.push(event.data); });
+    recorder.addEventListener('stop', () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(voiceQuery.chunks, { type: recorder.mimeType || 'audio/webm' });
+      voiceQuery.stream = null;
+      voiceQuery.recorder = null;
+      if (blob.size) sendVoiceAudio(blob);
+      else setVoiceStatus('没有录到声音');
+    }, { once: true });
+    recorder.start(250);
+    setVoiceStatus('正在录音，再次点击结束');
+    setVoiceButton();
+  } catch (error) {
+    setVoiceStatus('麦克风权限未开启');
+    answer('无法访问电脑麦克风：' + error.message);
+  }
+}
 function submitCommand(event) {
   event.preventDefault();
   const raw = $('command-input').value.trim();
@@ -696,6 +776,7 @@ $('demo-remove').addEventListener('click', demoRemove);
 $('reset-view').addEventListener('click', () => cabinet?.resetView());
 $('command-button').addEventListener('click', commandOpen);
 $('close-command').addEventListener('click', () => { $('command-panel').hidden = true; $('command-button').focus(); });
+$('record-command').addEventListener('click', toggleVoiceRecording);
 $('command-form').addEventListener('submit', submitCommand);
 $('close-modal').addEventListener('click', closeModal);
 $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) { const box = $('modal').getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeModal(); } });

@@ -90,6 +90,32 @@ python -m venv .venv
 
 第一批已增加APScheduler周期扫描入口，SQLite保存真实期限和任务，重启后重新扫描；不是第二套队列。网页发送器和语音播放器尚未实现，`trigger-reminders`及扫描只产生待投递任务，不意味着收到或播放。
 
+## 浏览器语音查询
+
+语音查询服务接收浏览器录音，在电脑本地用 `faster-whisper` 转写，只把转写文字发送到配置的 OpenAI 兼容远端模型。模型通过 `search_inventory` 工具读取 SQLite 中已经确认的库存，回答由浏览器的 `speechSynthesis` 在电脑端播报；远端模型不能直接写数据库。
+
+先初始化真实库存库并准备本地 ASR 模型：
+
+```bash
+cd code/backend
+python -m app.cli db --database var/mind-box.sqlite3 init
+# 如需建立明确的空柜基线，首次初始化时使用 init --known-empty
+python -m pip install -r requirements-voice.txt
+# 只需联网下载一次本地 ASR 权重；运行语音服务时不会再下载
+python - <<'PY'
+from faster_whisper.utils import download_model
+print(download_model('small', cache_dir='var/models', local_files_only=False))
+PY
+```
+
+配置 `.env` 中的 `MIND_BOX_API_URL`、`MIND_BOX_API_KEY` 和 `MIND_BOX_MODEL` 后启动服务：
+
+```bash
+python -m uvicorn app.voice_api:app --host 127.0.0.1 --port 8780
+```
+
+模型权重必须已经位于 `MIND_BOX_ASR_MODELS`（默认 `var/models`），服务只使用本地权重，不在请求时下载。WebUI 的 Vite 开发服务器将 `/api/voice` 转发到 `127.0.0.1:8780`；可用 `MIND_BOX_VOICE_URL` 修改地址。没有 API 密钥或没有初始化数据库时，接口返回明确错误，不会生成猜测答案。
+
 备份恢复：将备份目录中的数据库和同名`*-assets`目录放在同一父目录下，继续使用该数据库路径；可直接对备份路径运行`db --database <path> status`检查。原始视频仍为外部引用，重要录像另行备份。数据库备份使用SQLite backup API，兼容WAL，不直接复制正在写入的主文件。
 
 ## 模型识别与报告
