@@ -51,6 +51,9 @@ class VerifiedItem(BaseModel):
     support_reason: str = Field(max_length=600)
     localization_status: Literal['usable', 'partial', 'multiple_objects', 'wrong_target', 'uncertain']
     evidence_refs: list[str] = Field(min_length=1, max_length=12)
+    visibility_fraction: float | None = Field(default=None, ge=0, le=1)
+    occlusion_level: Literal['none', 'mild', 'moderate', 'severe', 'unknown'] = 'unknown'
+    object_support: Support | None = None
 
 
 class Verification(BaseModel):

@@ -14,7 +14,8 @@ from .client import APIError, Client, content, image_part, parse_json, write_jso
 from .config import ROOT, Settings
 from .media import prepare_video, signature, video_files
 from .schemas import Detection, Events, Normalization, Verification, pixel_box
-from .policy import guard_identity, possible_duplicates
+from .policy import descriptive_identity, guard_identity, possible_duplicates
+from .quality import assess_quality
 from .tools import TOOL_DEFINITIONS, ToolBox
 
 PROMPTS = Path(__file__).parent / 'prompts'
@@ -157,7 +158,7 @@ def process(path, output, client, max_frames, resume=False, initial_inventory=No
     file_hash = digest(path)
     prompt_hashes = {p.name: digest(p) for p in PROMPTS.glob('*.txt')}
     config_hash = hashlib.sha256(json.dumps({'model': client.settings.model, 'endpoint': client.settings.api_url,
-        'pipeline_version': 4, 'inventory_context': initial_inventory, 'actions_hash': version_hash(), 'max_frames': max_frames, 'prompts': prompt_hashes, 'catalog': digest(ROOT / 'knowledge/catalog.json')}, sort_keys=True).encode()).hexdigest()
+        'pipeline_version': 5, 'inventory_context': initial_inventory, 'actions_hash': version_hash(), 'max_frames': max_frames, 'prompts': prompt_hashes, 'catalog': digest(ROOT / 'knowledge/catalog.json')}, sort_keys=True).encode()).hexdigest()
     result_path = output / 'result.json'
     if resume and result_path.exists():
         previous = json.loads(result_path.read_text(encoding='utf-8'))
@@ -237,6 +238,8 @@ def process(path, output, client, max_frames, resume=False, initial_inventory=No
                 info = mapping[obj.candidate_id]
                 item['category'] = info['category']
                 item['retrieval'] = info
+                item.update(descriptive_identity(item))
+                item['visual_quality'] = assess_quality(item, evidence)
                 times = [evidence[e]['media_time_ms'] for e in obj.evidence_refs]
                 item.update(observation_id=f'{path.stem}:{obj.candidate_id}', identity_status='candidate',
                     first_selected_view_ms=min(times), last_selected_view_ms=max(times),

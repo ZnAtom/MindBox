@@ -51,9 +51,30 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .scene-heading h1 { font-size: 29px; font-weight: 570; line-height: 1.4; }
 .scene-subtitle { font-size: 11px; color: var(--muted); margin-top: 9px; }
 .scene-tools { position: absolute; right: 24px; top: 30px; z-index: 2; display: flex; gap: 3px; }
+.tool-divider { width: 1px; height: 17px; background: var(--line); align-self: center; margin: 0 7px; }
+.scene-tools .icon-button:disabled { opacity: .3; }
 .viewport { position: absolute; inset: 102px 0 115px; }
 .viewport canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .viewport canvas:active { cursor: grabbing; }
+.transfer-label { position: absolute; z-index: 3; pointer-events: none; display: flex; align-items: flex-start; gap: 9px; width: 172px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 4px 16px #00000008; }
+.transfer-label-symbol { color: var(--accent); display: flex; margin-top: 2px; }
+.transfer-label-symbol svg { width: 17px; height: 17px; }
+.transfer-label-copy { flex: 1; min-width: 0; }
+.transfer-label small { display: block; font-size: 9px; color: var(--muted); line-height: 1.5; }
+.transfer-label strong { display: block; font-size: 11px; font-weight: 550; line-height: 1.6; margin-top: 4px; overflow-wrap: anywhere; }
+.transfer-progress { display: block; height: 2px; background: var(--line); margin-top: 9px; overflow: hidden; }
+.transfer-progress > span { display: block; width: 100%; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
+.scene-state.transferring { color: var(--text); }
+.scene-state.receipt { color: var(--positive); }
+.scene-state svg { width: 14px; height: 14px; }
+.scene-state { max-width: calc(100% - 40px); text-align: center; }
+.scene-state > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.drawer-button.transferring::after { background: var(--accent); }
+.drawer-button.transferring .drawer-number { color: var(--accent); }
+.drawer-button.just-changed { animation: drawer-receipt 900ms ease-out; }
+@keyframes drawer-receipt { from { background: var(--accent-soft); } to { background: transparent; } }
+@keyframes record-arrival { from { opacity: .2; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.activity-row.new-record, .live-event.new-record, .item-row.new-record { animation: record-arrival 400ms cubic-bezier(.2,.7,.2,1) both; }
 .model-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; color: var(--muted); font-size: 13px; }
 .model-fallback svg { width: 90px; height: 90px; stroke-width: 1; }
 .scene-state { position: absolute; left: 50%; bottom: 122px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -139,6 +160,7 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .live-event { display: flex; align-items: center; gap: 8px; font-size: 11px; margin-top: 13px; line-height: 1.6; }
 .live-event svg { width: 14px; height: 14px; color: var(--positive); }
 .live-meta { color: var(--muted); font-size: 10px; margin: 6px 0 0 22px; }
+.live-event .change-count { margin-left: auto; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .search-field { display: flex; align-items: center; gap: 8px; background: var(--surface-soft); border-radius: 6px; padding: 0 11px; height: 39px; margin-bottom: 14px; }
 .search-field svg { width: 15px; height: 15px; color: var(--muted); }
 .search-field input { width: 100%; border: 0; background: transparent; height: 100%; font-size: 12px; }
@@ -217,7 +239,8 @@ dialog::backdrop { background: #00000038; }
   .scene-heading { left: 23px; top: 25px; } .scene-heading h1 { font-size: 24px; }
   .scene-subtitle { margin-top: 6px; } .eyebrow { margin-bottom: 6px; font-size: 9px; }
   .scene-tools { top: 20px; right: 14px; } .panel-collapsed .scene-tools { right: 56px; }
-  .panel-reopen { right: 16px; top: 20px; } .viewport { top: 94px; bottom: 105px; }
+  .scene-tools, .panel-collapsed .scene-tools { top: 100px; right: 16px; }
+  .panel-reopen { right: 16px; top: 20px; } .viewport { top: 140px; bottom: 105px; }
   .scene-state { bottom: 112px; font-size: 10px; } .drawer-dock { left: 18px; right: 18px; bottom: 14px; }
   .drawer-button { padding: 16px 6px 8px; gap: 8px; } .drawer-number { font-size: 19px; }
   .drawer-button strong { font-size: 10px; } .drawer-button small { font-size: 9px; }
@@ -225,5 +248,7 @@ dialog::backdrop { background: #00000038; }
   .bottom-status { min-width: 0; } .bottom-status span { display: none; }
   .command-trigger { padding: 0 9px; font-size: 11px; } .command-panel { bottom: 67px; }
   .device-section { padding-top: 12px; }
+  .transfer-label { width: 150px; padding: 9px 10px; gap: 7px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+:root.reduce-motion *, :root.reduce-motion *::before, :root.reduce-motion *::after { transition: none !important; animation: none !important; }

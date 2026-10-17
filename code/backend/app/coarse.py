@@ -4,6 +4,7 @@ import json
 from .actions import presence, selected_observation
 from .database import Conflict, DatabaseError, encode, new_id
 from .store import require
+from .quality import assess_quality
 
 
 class CoarseIntake:
@@ -31,6 +32,8 @@ class CoarseIntake:
                     'policy': 'single-insertion-evidence-v2', 'evidence_route': None}
         cid = additions[0]
         item = next(i for i in result['items'] if i['candidate_id'] == cid)
+        quality = assess_quality(item, result.get('evidence', {}))
+        reasons.extend(quality['reasons'])
         if item.get('localization_status') != 'usable' or item.get('target_kind') != 'movable_item':
             reasons.append('object_crop_not_verified_usable')
         snapshots = artifacts.get('snapshot-states.json', {}).get('objects', [])
@@ -45,9 +48,12 @@ class CoarseIntake:
         if len(events) != 1 or events[0].get('kind') != 'add' or events[0]['candidate_ids'] != [cid]:
             reasons.append('mixed_or_unresolved_event_history')
         windows = artifacts.get('window-states.json', [])
+        with self.store.db.connect() as connection:
+            frame_times = {r['local_ref']: {'media_time_ms': r['media_time_ms']} for r in connection.execute(
+                'SELECT local_ref, media_time_ms FROM observations WHERE run_id=?', (run_id,))}
         supported_crossings, stable_confirmations = [], []
         for window in windows:
-            observation, conflicts = selected_observation(window)
+            observation, conflicts = selected_observation(window, frame_times)
             if any(c['candidate_id'] == cid for c in conflicts):
                 reasons.append('review_reversed_prior_observation')
             for obj in observation['objects']:
@@ -81,6 +87,7 @@ class CoarseIntake:
                 'candidate_id': cid, 'operation_id': operation['id'], 'run_id': run_id,
                 'base_revision': run['base_revision'], 'policy': 'single-insertion-evidence-v2',
                 'evidence_route': route,
+                'quality': quality,
                 'endpoint_source': baseline['source'] if baseline else 'snapshot'}
 
     @staticmethod

@@ -262,6 +262,31 @@ def test_speech_does_not_bind_by_time_alone_or_to_existing_drink(scenario, tmp_p
     assert context.store.get_item(item_id)['expires_on'] is None
 
 
+def test_late_speech_link_and_date_refresh_the_same_task_draft(scenario, tmp_path):
+    context, saved, video, item_id = inserted(scenario)
+    text = '鸡胸肉2026年10月21日过期，提醒我吃掉它'
+    service, utter, _, _ = utterance(context, video, tmp_path, text,
+        slots(expiry_raw='2026年10月21日', commands=[{'kind': 'before_expiry', 'raw': '提醒我吃掉它'}]))
+    tasks = Tasks(context)
+    first = tasks.draft(utter['id'])[0]
+    first_data = json.loads(first['data_json'])
+    assert first['item_id'] is None and 'item_link' in first_data['missing']
+
+    linked = service.link(utter['id'])
+    assert linked['item_id'] == item_id
+    second = tasks.list()[0]
+    assert second['id'] == first['id'] and second['version'] == 2 and second['item_id'] == item_id
+    assert 'item_link' not in json.loads(second['data_json'])['missing']
+
+    service.apply_facts(utter['id'])
+    third = tasks.list()[0]
+    third_data = json.loads(third['data_json'])
+    assert third['id'] == first['id'] and third['version'] == 3
+    assert 'item_link' not in third_data['missing'] and 'expiry_date' not in third_data['missing']
+    assert len(tasks.draft(utter['id'])) == 1
+    assert tasks.list()[0]['version'] == 3
+
+
 def test_real_scheduler_countdown_and_no_fake_delivery(scenario, tmp_path):
     context, saved, video, item_id = inserted(scenario)
     enrich_candidate(context, saved['run_id'], 'c0', item_id)

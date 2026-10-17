@@ -15,7 +15,7 @@ from .matching import AppearanceMatcher
 from .schemas import pixel_box
 
 PROMPTS = Path(__file__).parent / 'prompts'
-VERSION = 3
+VERSION = 4
 
 
 def action_prompt(name):
@@ -131,6 +131,16 @@ def validate_plan(plan, frames, allowed):
             raise ValueError('Interaction windows must have unique IDs and increasing starts')
         previous = a
         ids.add(window.window_id)
+    if plan.windows and plan.before_snapshot:
+        before_time = frames[plan.before_snapshot.frame_id]['media_time_ms']
+        first_window = frames[plan.windows[0].start_frame_id]['media_time_ms']
+        if before_time > first_window:
+            raise ValueError('Before snapshot must not be after the first interaction window')
+    if plan.windows and plan.after_snapshot:
+        after_time = frames[plan.after_snapshot.frame_id]['media_time_ms']
+        last_window = frames[plan.windows[-1].end_frame_id]['media_time_ms']
+        if after_time < last_window:
+            raise ValueError('After snapshot must not be before the last interaction window')
 
 
 def validate_states(value, candidate_ids, allowed_before, allowed_after, frames):
@@ -249,7 +259,24 @@ def presence(state):
     return None
 
 
-def review_conflicts(original, revised):
+def _time_bounds(state, frames):
+    if not frames or not state.get('frame_ids'):
+        return None
+    times = [frames[frame_id]['media_time_ms'] for frame_id in state['frame_ids'] if frame_id in frames]
+    return (min(times), max(times)) if times else None
+
+
+def _endpoint_replacement(side, old, revised, frames):
+    """Allow a review to move a before endpoint earlier or an after endpoint later."""
+    old_bounds, new_bounds = _time_bounds(old, frames), _time_bounds(revised, frames)
+    if not old_bounds or not new_bounds:
+        return False
+    if side == 'before':
+        return new_bounds[1] < old_bounds[0]
+    return new_bounds[0] > old_bounds[1]
+
+
+def review_conflicts(original, revised, frames=None):
     """A later answer is not independent proof that a known observation was wrong."""
     conflicts = []
     previous = {o['candidate_id']: o for o in original['objects']}
@@ -261,20 +288,57 @@ def review_conflicts(original, revised):
             a, b = old[side], obj[side]
             pa, pb = presence(a), presence(b)
             if pa is not None and pb is not None and pa != pb:
+                if _endpoint_replacement(side, a, b, frames):
+                    continue
                 conflicts.append({'candidate_id': obj['candidate_id'], 'side': side,
                                   'reason': 'review_reversed_known_presence'})
             elif (pa is True and pb is True and a['at_rest'] != b['at_rest']
-                  and set(a['frame_ids']) & set(b['frame_ids'])):
+                  and (set(a['frame_ids']) & set(b['frame_ids'])
+                       or not _endpoint_replacement(side, a, b, frames))):
                 conflicts.append({'candidate_id': obj['candidate_id'], 'side': side,
                                   'reason': 'review_reversed_same_frame_rest_state'})
     return conflicts
 
 
-def selected_observation(window):
+def selected_observation(window, frames=None):
     original = window.get('initial_observation')
     revised = window.get('review_observation', window['observation'])
-    conflicts = review_conflicts(original, revised) if original else []
+    conflicts = review_conflicts(original, revised, frames) if original else []
     return (original if conflicts else window['observation']), conflicts
+
+
+def _box_overlap(first, second):
+    ax1, ay1, ax2, ay2 = first
+    bx1, by1, bx2, by2 = second
+    ix1, iy1, ix2, iy2 = max(ax1, bx1), max(ay1, by1), min(ax2, bx2), min(ay2, by2)
+    intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    first_area = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    second_area = max(0, bx2 - bx1) * max(0, by2 - by1)
+    if not intersection or not first_area or not second_area:
+        return 0.0, 0.0
+    return intersection / max(first_area, second_area), intersection / min(first_area, second_area)
+
+
+def instance_conflicts(observation, frames):
+    """Return strong same-frame appearance overlaps that make identity non-exclusive."""
+    conflicts = []
+    for frame_id in set(frame_id for obj in observation['objects']
+                        for side in ('before', 'after') for frame_id in obj[side]['frame_ids']):
+        cited = {obj['candidate_id'] for obj in observation['objects']
+                 if any(frame_id in obj[side]['frame_ids'] for side in ('before', 'after'))}
+        hits = [hit for hit in frames.get(frame_id, {}).get('appearance_hints', [])
+                if hit.get('candidate_id') in cited and len(hit.get('bbox_pixels', [])) == 4]
+        for index, first in enumerate(hits):
+            for second in hits[index + 1:]:
+                if first['candidate_id'] == second['candidate_id']:
+                    continue
+                iou, containment = _box_overlap(first['bbox_pixels'], second['bbox_pixels'])
+                if iou >= 0.45 or containment >= 0.75:
+                    conflicts.append({'frame_id': frame_id,
+                                      'candidate_ids': sorted([first['candidate_id'], second['candidate_id']]),
+                                      'reason': 'overlapping_instance_hints'})
+    unique = {(item['frame_id'], tuple(item['candidate_ids'])): item for item in conflicts}
+    return list(unique.values())
 
 
 def reconcile(snapshots, windows, frames):
@@ -285,8 +349,10 @@ def reconcile(snapshots, windows, frames):
     def supported(obj):
         return obj['identity'] == 'supported' and obj['support'] in ('high', 'medium')
 
-    observations = [(w, *selected_observation(w)) for w in windows]
+    observations = [(w, *selected_observation(w, frames)) for w in windows]
     baseline, final, prefixes = {}, {}, []
+    snapshot_conflicts = instance_conflicts(snapshots, frames)
+    blocked_candidates = {cid for conflict in snapshot_conflicts for cid in conflict['candidate_ids']}
     for snapshot in snapshots['objects']:
         cid = snapshot['candidate_id']
         choices = [(snapshot, 'snapshot', None, 'before')] + [
@@ -310,6 +376,8 @@ def reconcile(snapshots, windows, frames):
     initial = {o['candidate_id']: presence(baseline[o['candidate_id']]['state'])
                if o['candidate_id'] in baseline else None for o in snapshots['objects']}
     ledger, removed, events, pending, gaps = dict(initial), set(), [], [], []
+    pending.extend({'candidate_ids': conflict['candidate_ids'], 'frame_id': conflict['frame_id'],
+                    'reason': conflict['reason']} for conflict in snapshot_conflicts)
     known_refs = {cid: list(baseline[cid]['state']['frame_ids']) if cid in baseline else [] for cid in initial}
     known_states = {cid: baseline[cid]['state'] if cid in baseline else None for cid in initial}
     intents, completions, cancelled = {}, [], []
@@ -346,8 +414,13 @@ def reconcile(snapshots, windows, frames):
 
     for window, observation, conflicts in observations:
         pending.extend({**conflict, 'window_id': window['window_id']} for conflict in conflicts)
+        window_conflicts = instance_conflicts(observation, frames)
+        pending.extend({**conflict, 'window_id': window['window_id']} for conflict in window_conflicts)
+        blocked = blocked_candidates | {cid for conflict in window_conflicts for cid in conflict['candidate_ids']}
         for obj in observation['objects']:
             cid = obj['candidate_id']
+            if cid in blocked:
+                continue
             before, after = presence(obj['before']), presence(obj['after'])
             if not supported(obj):
                 if before == after:
@@ -621,7 +694,7 @@ def analyze_operation(video, output, client, result, structured, source=None, in
                     'states_recheck_' + Path(video).stem + '_' + window['window_id'], StateComparison,
                     lambda v: check_states(v, targets, supplied, supplied), max_tokens=5600).model_dump()
                 window['review_observation'] = revised
-                conflicts = review_conflicts(window['initial_observation'], revised)
+                conflicts = review_conflicts(window['initial_observation'], revised, tools.frames)
                 window['review_decision'] = {'status': 'pending' if conflicts else 'accepted', 'conflicts': conflicts}
                 if not conflicts:
                     window['observation'] = {**revised, 'objects':

@@ -19,6 +19,7 @@ class FieldSource(Strict):
 
 class ItemValues(Strict):
     name: str = Field(min_length=1, max_length=120)
+    name_kind: Literal['specific', 'attribute_description', 'unknown'] = 'unknown'
     category: str = Field(default='未知', min_length=1, max_length=60)
     description: str | None = Field(default=None, max_length=1000)
     brand: str | None = Field(default=None, max_length=120)

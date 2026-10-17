@@ -107,7 +107,7 @@ flowchart LR
 
 `SpeechService.ingest`验证视频scope、音轨哈希、最终文本、准确引用的槽位与时间段；原话/候选归一化并存。完全相同稿重传复用；文本/时窗改稿当前拒绝并要求重核验，不静默覆盖事实或任务。中间稿无副作用。
 
-关联目前为同视频新增item、类型原文包含、事件时间接近及仍在柜内。v9“可乐/罐装汽水”匹配失败已实测；后续规范类型匹配要保留证据、唯一候选及冲突拒绝，不按时间强绑。语句先pending不阻塞实物入库。关联成立后的日期只补该item，不继承到其他同款物品。
+关联目前为同视频新增item、名称归一化或有限类别兼容、事件时间接近及仍在柜内。v9“可乐/罐装汽水”已通过饮品类别兼容规则关联；仍保留候选分数、唯一候选和冲突拒绝，不按时间单独强绑。语句先pending不阻塞实物入库。关联成立后的日期只补该item，不继承到其他同款物品。
 
 统一会话回执为计划中的读视图，须返回各阶段status、run/item/utterance/task/reminder/delivery ID、缺失项与来源。不得把inventory=committed、task=needs_input合并成整段失败；同样不得以任务已保存宣称已设置或已播放。联合检查目前由`scripts.workflow_review`生成，尚无对应HTTP服务。
 
@@ -123,7 +123,7 @@ flowchart LR
 
 before_expiry需要同item明确expires_on、显式到期边界和未来due_at，due_at必须早于到期边界。after_expiry_remove不接受due_at，需要同item已提交remove、可信事件时钟、规则生效之后/到期之后的事件。去重键(rule_id,version,event_id)。历史录像无可信时钟不触发新警告；取出不自动完成其他提醒。
 
-语音意图source=speech；用户配置的过期取出策略source=configured_policy，不能伪装音轨听到。日期修改使旧活动规则失效并取消未领取投递；已发出的网络副作用不能保证撤回。草稿目前不自动刷新关联/缺失项，需统一协调器补齐。
+语音意图source=speech；用户配置的过期取出策略source=configured_policy，不能伪装音轨听到。日期修改使旧活动规则失效并取消未领取投递；已发出的网络副作用不能保证撤回。关联或日期晚到时，needs_input草稿会刷新同一记录的缺失项并递增版本；用户补答后的真实Web/设备闭环仍待接入。
 
 ### 周期任务扩展（尚未实施）
 

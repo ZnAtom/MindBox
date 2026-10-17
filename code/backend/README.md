@@ -166,4 +166,4 @@ docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/do
 .\.venv\Scripts\python.exe -m scripts.workflow_review speech --root var/experiments/joint-review-new --removal-policy-reason '用户配置的到期后取出提示策略，不是音频原话'
 ```
 
-speech目标目录必须不存在，副本沿用冻结源manifest/scope以便重现；不会回写源库，也不会新增库存。`--removal-policy-reason`仅用于v10，省略则只生成真实音频要求的任务。当前v9关联pending、v10已关联但任务缺日期/时间，均如实报告。架构统一见[处理流程](../doc/processing-flow.md)，结果与修改建议见[评测](../doc/evaluation-and-lessons.md)。
+speech目标目录必须不存在，副本沿用冻结源manifest/scope以便重现；不会回写源库，也不会新增库存。`--removal-policy-reason`仅用于v10，省略则只生成真实音频要求的任务。当前v9已通过饮品类别兼容规则关联、v10已关联但任务缺日期/时间，均如实报告。架构统一见[处理流程](../doc/processing-flow.md)，结果与修改建议见[评测](../doc/evaluation-and-lessons.md)。
