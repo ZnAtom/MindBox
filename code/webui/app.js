@@ -50,7 +50,7 @@ function fixtures() {
   };
 }
 
-// This state is deliberately separate from the inventory database and device APIs.
+// Inventory and reminders remain preview data; hardware only supplies door states.
 let state = fixtures();
 try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -68,6 +68,10 @@ let panelCollapsed = mobile.matches;
 let toastTimer;
 let cabinet;
 let storageWarningShown = false;
+let hardware = { connected: false, state: null };
+let camera = { connected: false, latest: null, cached_frames: 0 };
+// The first preview cabinet is the single physical cabinet in this prototype.
+const hardwareDeviceId = 'mb-01';
 
 function persist() {
   try { localStorage.setItem(storageKey, JSON.stringify(state)); }
@@ -135,7 +139,10 @@ function liveView() {
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
   if (!opened.length) return '';
   const latest = device.activity[0];
-  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button></div></div><div class="camera-empty">${icon('camera-off')}<span>摄像头未连接</span></div>${latest?.demo ? `<div class="live-event">${icon('check-check')}<span>${esc(latest.title)} · 已更新预览</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
+  const cameraView = camera.connected && hardware.connected && device.id === hardwareDeviceId
+    ? '<img class="camera-live" src="/api/camera/mjpeg" alt="K230 实时摄像头画面">'
+    : `<div class="camera-empty">${icon('camera-off')}<span>等待摄像头画面</span></div>`;
+  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button></div></div>${cameraView}${latest?.demo ? `<div class="live-event">${icon('check-check')}<span>${esc(latest.title)} · 已更新预览</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
 }
 function renderOverview() {
   const device = activeDevice();
@@ -177,6 +184,39 @@ function render(instant = false) {
   $('scene-subtitle').textContent = `3 个抽屉 · ${device.items.length} 件物品`;
   $('item-count').textContent = device.items.length;
   renderDevices(); renderDock(); renderPanel(); syncModel(instant);
+  renderHardwareStatus();
+}
+function renderHardwareStatus() {
+  const linked = activeDevice().id === hardwareDeviceId && hardware.connected;
+  $('hardware-status').textContent = linked ? (hardware.state?.source === 'simulation' ? '模拟设备已连接' : 'K230 已连接') : '设备未连接';
+  $('demo-drawer').disabled = linked;
+}
+function applyDoorSnapshot(snapshot) {
+  if (snapshot?.schema !== 1 || snapshot.cabinet_id !== 'cabinet-01' || typeof snapshot.connected !== 'boolean') return;
+  const message = snapshot.state;
+  if (message && (!Array.isArray(message.open) || message.open.length !== 3 || message.open.some((value) => typeof value !== 'boolean'))) return;
+  const connectionChanged = hardware.connected !== snapshot.connected;
+  hardware = snapshot;
+  const device = state.devices.find((entry) => entry.id === hardwareDeviceId);
+  if (device && message && snapshot.connected) {
+    const changed = device.open.some((value, index) => value !== message.open[index]);
+    device.open = [...message.open];
+    if (device.id === activeId && changed) {
+      if (Number.isInteger(message.drawer) && message.drawer >= 1 && message.drawer <= 3) selectedDrawer = message.drawer;
+      renderDock();
+      syncModel();
+    }
+    if (device.id === activeId && activeTab === 'overview' && (changed || connectionChanged)) renderPanel();
+  } else if (connectionChanged && activeDevice().id === hardwareDeviceId && activeTab === 'overview') {
+    renderPanel();
+  }
+  renderHardwareStatus();
+}
+function applyCameraSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot.connected !== 'boolean') return;
+  const changed = camera.connected !== snapshot.connected || camera.epoch !== snapshot.epoch;
+  camera = snapshot;
+  if (changed && activeTab === 'overview' && activeDevice().open.some(Boolean)) renderPanel();
 }
 function setTab(tab) {
   activeTab = tab;
@@ -193,6 +233,7 @@ function switchDevice(id) {
 }
 function toggleDrawer() {
   const device = activeDevice();
+  if (device.id === hardwareDeviceId && hardware.connected) return;
   device.open[selectedDrawer - 1] = !device.open[selectedDrawer - 1];
   if (activeTab !== 'overview') activeTab = 'overview';
   render(); persist();
@@ -363,6 +404,40 @@ mobile.addEventListener('change', (event) => setPanel(event.matches));
 function updateClock() { $('clock').textContent = new Date().toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + '  ' + timeNow(); }
 updateClock(); setInterval(updateClock, 30000);
 applyTheme(); setPanel(panelCollapsed); render();
+let doorEvents;
+function disconnectDoorEvents() {
+  const wasConnected = hardware.connected;
+  hardware = { ...hardware, connected: false };
+  renderHardwareStatus();
+  if (wasConnected && activeDevice().id === hardwareDeviceId && activeTab === 'overview') renderPanel();
+}
+function connectDoorEvents() {
+  doorEvents?.close();
+  if (!navigator.onLine) { disconnectDoorEvents(); return; }
+  doorEvents = new EventSource('/api/doors/events');
+  doorEvents.addEventListener('doors', (event) => {
+    try { applyDoorSnapshot(JSON.parse(event.data)); }
+    catch (error) { console.warn('Invalid door snapshot:', error); }
+  });
+  doorEvents.onerror = disconnectDoorEvents;
+}
+window.addEventListener('offline', () => { doorEvents?.close(); disconnectDoorEvents(); });
+window.addEventListener('online', connectDoorEvents);
+connectDoorEvents();
+async function pollCamera() {
+  try {
+    const response = await fetch('/api/camera/state', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error('camera state ' + response.status);
+    applyCameraSnapshot(await response.json());
+    const image = document.querySelector('.camera-live');
+    if (camera.connected && image?.complete && !image.naturalWidth) image.src = '/api/camera/mjpeg?retry=' + Date.now();
+  } catch (error) {
+    applyCameraSnapshot({ connected: false, latest: null, cached_frames: 0 });
+  } finally {
+    setTimeout(pollCamera, 1000);
+  }
+}
+pollCamera();
 import('./cabinet.js').then(({ createCabinet }) => {
   cabinet = createCabinet($('viewport'), selectDrawer);
   syncModel(true);
@@ -372,4 +447,4 @@ import('./cabinet.js').then(({ createCabinet }) => {
 });
 
 // Read-only diagnostics for browser verification, with no production inventory writes.
-window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), model: cabinet?.snapshot() }) };
+window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), hardware, camera, model: cabinet?.snapshot() }) };

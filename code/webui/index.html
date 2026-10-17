@@ -35,7 +35,7 @@
         </div>
         <nav class="panel-tabs" aria-label="设备视图" role="tablist"><button id="tab-overview" role="tab" data-tab="overview" aria-selected="true" aria-controls="panel-content" class="active">概览</button><button id="tab-items" role="tab" data-tab="items" aria-selected="false" aria-controls="panel-content" tabindex="-1">物品<span id="item-count"></span></button><button id="tab-reminders" role="tab" data-tab="reminders" aria-selected="false" aria-controls="panel-content" tabindex="-1">提醒</button></nav>
         <div class="panel-scroll" id="panel-content" role="tabpanel" aria-labelledby="tab-overview"></div>
-        <div class="panel-footer"><i data-lucide="circle-dashed"></i><span>设备待连接</span><span class="footer-end">预览数据</span></div>
+        <div class="panel-footer"><i data-lucide="circle-dashed"></i><span id="hardware-status" role="status">设备待连接</span><span class="footer-end">预览数据</span></div>
       </aside>
       <button class="icon-button panel-reopen" id="expand-panel" aria-label="展开右侧面板" data-tooltip="展开设备面板" aria-expanded="false" aria-controls="side-panel" hidden><i data-lucide="panel-right-open"></i><span class="activity-dot" hidden></span></button>
     </main>
