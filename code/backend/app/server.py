@@ -18,6 +18,8 @@ from .config import ROOT, Settings
 from .database import Conflict, DatabaseError, NotFound
 from .inventory_schemas import Strict, ItemValues
 from .store import Store
+from .voice_api import VoiceAssistant, mount_routes
+from .voice_runtime import VoiceRuntime
 
 
 @contextmanager
@@ -64,6 +66,8 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
     sessions = Sessions(store, session_root or database.parent / (database.stem + '-sessions'))
     capture = BridgeCapture(sessions, bridge or os.getenv('MIND_BOX_BRIDGE_URL', 'http://127.0.0.1:8765'))
     recorder = AutomaticRecorder(sessions)
+    assistant = VoiceAssistant(database=database)
+    voice = VoiceRuntime(assistant, sessions, capture.bridge)
     stopped = threading.Event()
 
     @asynccontextmanager
@@ -71,7 +75,7 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
         with service_lock(database.with_suffix('.service.lock')):
             sessions.recover()
             threads = [threading.Thread(target=target, args=(stopped,), daemon=True)
-                       for target in (capture.run, recorder.run)] if workers else []
+                       for target in (capture.run, recorder.run, voice.run, assistant.tasks.run)] if workers else []
             for thread in threads:
                 thread.start()
             try:
@@ -85,6 +89,8 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
     app = FastAPI(title='Mind Box', lifespan=lifespan)
     app.state.store, app.state.sessions = store, sessions
     app.state.capture, app.state.recorder = capture, recorder
+    app.state.assistant, app.state.voice = assistant, voice
+    mount_routes(app, assistant)
 
     @app.middleware('http')
     async def local_mutations(request: Request, call_next):
@@ -116,8 +122,8 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
                 'sourceLabel': '自动记录画面', 'mode': 'contain'}
 
     @app.get('/api/inventory')
-    def inventory():
-        value = store.get_inventory_snapshot()
+    def inventory(query: str | None = None):
+        value = store.get_inventory_snapshot(query=query)
         for item in value['items']:
             item['photo'] = picture(item)
         with store.db.connect() as db:
@@ -166,6 +172,11 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
         root = Path(value.pop('root'))
         manifest_path = root / 'session.json'
         manifest = read_json(manifest_path) if manifest_path.exists() else {}
+        value['capture_policy'] = manifest.get('capture_policy', {'preroll_ms': 2000, 'tail_ms': 2000})
+        with store.db.connect() as db:
+            rows = db.execute('SELECT id,state,transcript,result_json FROM voice_interactions WHERE session_id=?', (identity,))
+            value['voice'] = [{**{k: row[k] for k in ('id', 'state', 'transcript')},
+                               'result': json.loads(row['result_json'])} for row in rows]
         value['frames'] = [{**{k: f[k] for k in ('id', 'media_time_ms')},
                             'url': f'/api/recording/sessions/{identity}/frames/{f["id"]}.jpg'}
                            for f in manifest.get('frames', [])]

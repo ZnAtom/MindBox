@@ -99,11 +99,17 @@ let camera = { connected: false, latest: null, cached_frames: 0 };
 let audio = { enabled: false, status: 'disabled' };
 let vision = { enabled: false, status: 'disabled' };
 let voiceQuery = { recorder: null, stream: null, chunks: [], recording: false, busy: false };
+let voiceInitialized = false;
+const seenDoorResults = new Set();
+const attemptedDeliveries = new Set();
+let pendingDeliveries = [];
+let reminderSignature = '';
+let inventoryMatches = null;
+let searchTimer;
 // The first preview cabinet is the single physical cabinet in this prototype.
 const hardwareDeviceId = 'mb-01';
 const physicalDevice = state.devices.find((device) => device.id === hardwareDeviceId);
-if (physicalDevice) Object.assign(physicalDevice, { items: [], activity: [],
-  reminders: physicalDevice.reminders.filter((reminder) => !['fruit', 'daily-oil'].includes(reminder.id)) });
+if (physicalDevice) Object.assign(physicalDevice, { items: [], activity: [], reminders: [] });
 let inventory = { connected: false, revision: 0, known: false };
 let recording = { counts: {}, sessions: [], capture: {} };
 let inventorySignature = '';
@@ -229,7 +235,8 @@ function renderOverview() {
   return `${recordingStrip()}${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">${isPhysical() ? '已记录' : '共'} ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] && drawerKnown(device, index) ? 'open' : ''}"><span class="status-dot"></span>${drawerLabel(device, index)}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row ${isNewRecord(event.id) ? 'new-record' : ''}">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1] || '位置待确认'}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
 }
 function itemRows() {
-  const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) && item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) &&
+    (isPhysical() && inventoryMatches !== null ? inventoryMatches.includes(item.id) : item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
   return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}">${itemVisual(item)}<span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1] || '位置待确认'} · ${item.storedOn ? monthDay(item.storedOn) + ' 放入' : '放入时间未知'}${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : isPhysical() ? '暂无已确认记录' : '这里还没有物品'}</div>`;
 }
 function renderItems() {
@@ -242,7 +249,9 @@ function renderReminders() {
   }
   const pending = reminders.filter((reminder) => !reminder.done);
   const done = reminders.filter((reminder) => reminder.done);
-  return `<div class="section-title"><h3>提醒与任务</h3><button class="icon-button small" data-action="add-reminder" aria-label="添加提醒" data-tooltip="添加提醒">${icon('plus')}</button></div>${pending.length ? groupRows(pending) : `<div class="empty-state">${icon('bell')}暂无待办提醒</div>`}${done.length ? `<div class="reminder-group-label">已完成</div>${groupRows(done)}` : ''}`;
+  const deliveries = isPhysical() ? pendingDeliveries.filter((entry) => entry.channel === 'voice').map((entry) =>
+    `<div class="reminder-row"><span class="row-copy"><strong>${esc(entry.message)}</strong><small>${entry.state === 'failed' ? '待手动播报' : '提醒已到时间'}</small></span><button class="icon-button small" data-play-reminder="${esc(entry.id)}" aria-label="播报提醒" title="播报提醒">${icon('play')}</button></div>`).join('') : '';
+  return `<div class="section-title"><h3>提醒与任务</h3><button class="icon-button small" data-action="add-reminder" aria-label="添加提醒" data-tooltip="添加提醒">${icon('plus')}</button></div>${deliveries}${pending.length ? groupRows(pending) : `<div class="empty-state">${icon('bell')}暂无待办提醒</div>`}${done.length ? `<div class="reminder-group-label">已结束</div>${groupRows(done)}` : ''}`;
 }
 function renderPanel() {
   const content = $('panel-content');
@@ -323,6 +332,7 @@ function switchDevice(id) {
   selectedDrawer = 1;
   drawerFilter = 0;
   query = '';
+  inventoryMatches = null;
   $('command-response').hidden = true;
   render(true);
 }
@@ -394,9 +404,16 @@ function recordTransfer(direction, item) {
     $('transfer-progress').style.transform = `scaleX(${progress})`;
   } });
 }
-function completeReminder(id) {
+async function completeReminder(id) {
   const reminder = activeDevice().reminders.find((entry) => entry.id === id);
   if (!reminder) return;
+  if (isPhysical()) {
+    try {
+      await api(`/api/reminders/${id}/cancel`, { method: 'POST' });
+      await refreshReminders(); toast('提醒已取消');
+    } catch (error) { toast(error.message); }
+    return;
+  }
   if (reminder.repeat === 'daily' && !reminder.done) {
     const nextDate = new Date(Math.max(new Date(reminder.date + 'T00:00:00').getTime(), new Date(localDate() + 'T00:00:00').getTime()));
     nextDate.setDate(nextDate.getDate() + 1);
@@ -460,7 +477,8 @@ async function api(path, options = {}) {
     headers: { 'Content-Type': 'application/json' }, body: options.body ? JSON.stringify(options.body) : undefined });
   if (!response.ok) {
     if (response.status === 409) throw new Error('记录已变化或仍需核对，请刷新后重试');
-    throw new Error('操作未完成，请检查连接和填写内容');
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(typeof payload.detail === 'string' ? payload.detail : '操作未完成，请检查连接和填写内容');
   }
   return response.json();
 }
@@ -505,6 +523,15 @@ async function openSession(identity) {
     const frames = session.frames;
     const reviewable = ['pending', 'failed'].includes(session.state);
     openModal('收纳记录 · ' + sessionLabels[session.state], `<div class="session-detail">${session.detail.reasons?.length ? `<p class="session-reasons">${session.detail.reasons.map((reason) => esc(reasonText(reason))).join('；')}</p>` : ''}${session.detail.message ? `<p>${esc(session.detail.message)}</p>` : ''}${session.objects?.length ? `<p>${session.objects.map((item) => esc(item.name)).join('、')}</p>` : ''}${frames.length ? `<div class="capture-image session-image"><img id="session-frame" src="${esc(frames[0].url)}" alt="收纳记录画面"></div><label class="session-timeline"><input id="session-seek" type="range" min="0" max="${frames.length - 1}" step="1" value="0" aria-label="查看操作画面"><output id="session-time">${(frames[0].media_time_ms / 1000).toFixed(2)} 秒</output></label>` : '<p>没有可用画面</p>'}<div class="modal-actions"><button class="button" data-action="recording">返回</button>${reviewable ? `<button class="button" data-session-action="dismiss" data-session-id="${esc(identity)}">核对后忽略</button><button class="icon-button" data-session-action="retry" data-session-id="${esc(identity)}" aria-label="重试识别" title="重试识别">${icon('refresh-cw')}</button>` : ''}</div></div>`);
+    if (session.voice?.length) {
+      const section = document.createElement('div');
+      const labels = { waiting_inventory: '等待库存识别', processing: '正在处理', completed: '已处理', failed: '处理失败' };
+      section.innerHTML = session.voice.map((entry) => `<p><strong>收纳语音 · ${labels[entry.state]}</strong></p>
+        ${entry.transcript ? `<p>${esc(entry.transcript)}</p>` : ''}<p>${esc(entry.result.answer || entry.result.error || '')}</p>
+        ${entry.state === 'failed' ? `<button class="icon-button" data-retry-voice="${esc(entry.id)}" aria-label="重试语音处理" title="重试语音处理">${icon('refresh-cw')}</button>` : ''}`).join('');
+      document.querySelector('.session-detail').prepend(section);
+      paintIcons();
+    }
     $('session-seek')?.addEventListener('input', (event) => {
       const frame = frames[Number(event.target.value)];
       $('session-frame').src = frame.url;
@@ -551,8 +578,74 @@ async function refreshRecording() {
     if (strip) strip.innerHTML = `<span class="status-dot ${inventory.connected ? 'active' : ''}"></span>${esc(recordingLabel())}`;
   }
 }
+async function searchInventory() {
+  const term = query;
+  if (!isPhysical() || !term.trim()) { inventoryMatches = null; return; }
+  const value = await api('/api/inventory?query=' + encodeURIComponent(term));
+  if (!isPhysical() || query !== term) return;
+  inventoryMatches = value.items.map((item) => item.id);
+  if ($('item-results')) { $('item-results').innerHTML = itemRows(); paintIcons(); }
+}
+async function acknowledgeDelivery(entry, kind) {
+  return api(`/api/reminders/deliveries/${entry.id}/ack`, { method: 'POST', body: { channel: entry.channel, kind } });
+}
+function playReminder(entry) {
+  if (!('speechSynthesis' in window)) return;
+  attemptedDeliveries.add(entry.id);
+  const utterance = new SpeechSynthesisUtterance(entry.message);
+  utterance.lang = 'zh-CN';
+  utterance.onstart = () => acknowledgeDelivery(entry, 'received').catch(() => {});
+  utterance.onend = () => acknowledgeDelivery(entry, 'played').then(refreshReminders).catch(() => {});
+  utterance.onerror = () => acknowledgeDelivery(entry, 'failed').then(refreshReminders).catch(() => {});
+  window.speechSynthesis.speak(utterance);
+}
+async function refreshReminders() {
+  const value = await api('/api/reminders');
+  const signature = JSON.stringify(value);
+  pendingDeliveries = value.deliveries;
+  physicalDevice.reminders = value.reminders.map((entry) => {
+    const date = new Date(entry.due_at);
+    return { id: entry.id, title: entry.message, date: date.toLocaleDateString('sv-SE'),
+      time: date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      repeat: entry.repeat, done: entry.status !== 'pending', status: entry.status };
+  });
+  for (const entry of pendingDeliveries) {
+    if (entry.channel === 'web' && !attemptedDeliveries.has(entry.id)) {
+      attemptedDeliveries.add(entry.id); toast(entry.message);
+      answer('提醒：' + entry.message); $('command-panel').hidden = false;
+      acknowledgeDelivery(entry, 'received').catch(() => {});
+    }
+    if (entry.channel === 'voice' && entry.state !== 'failed' && !attemptedDeliveries.has(entry.id)
+        && !voiceQuery.recording && !['recording', 'starting', 'tail'].includes(audio.status)) playReminder(entry);
+  }
+  if (signature !== reminderSignature) {
+    reminderSignature = signature;
+    if (isPhysical() && activeTab !== 'items') renderPanel();
+  }
+}
+async function refreshVoice() {
+  const value = await api('/api/voice/state');
+  const interactions = value.interactions.filter((entry) => entry.origin === 'door');
+  if (!voiceInitialized) {
+    interactions.filter((entry) => ['completed', 'failed'].includes(entry.state)).forEach((entry) => seenDoorResults.add(entry.id));
+    voiceInitialized = true;
+  }
+  for (const entry of [...interactions].reverse()) {
+    if (!['completed', 'failed'].includes(entry.state) || seenDoorResults.has(entry.id)) continue;
+    seenDoorResults.add(entry.id);
+    const message = entry.result.answer || entry.result.error;
+    if (message) {
+      $('command-panel').hidden = false;
+      answer(`${entry.transcript ? '收纳时说：' + entry.transcript + '\n\n' : ''}${message}`);
+      if (entry.state === 'completed' && !voiceQuery.recording && !['recording', 'starting', 'tail'].includes(audio.status)) speakAnswer(message);
+      setVoiceStatus(entry.state === 'completed' ? '收纳语音已处理' : '收纳语音处理失败');
+    }
+  }
+  if (interactions[0]?.state === 'waiting_inventory' && !voiceQuery.busy && !voiceQuery.recording) setVoiceStatus('收纳语音等待库存识别');
+  if (interactions[0]?.state === 'processing' && !voiceQuery.busy && !voiceQuery.recording) setVoiceStatus('正在处理收纳语音');
+}
 async function pollInventory() {
-  try { await refreshInventory(); await refreshRecording(); }
+  try { await refreshInventory(); await refreshRecording(); await refreshReminders(); await refreshVoice(); }
   catch {
     if (inventory.connected) {
       inventory = { ...inventory, connected: false };
@@ -564,18 +657,34 @@ function openReminder(id = '', preset = {}) {
   const device = activeDevice();
   const existing = device.reminders.find((entry) => entry.id === id);
   const reminder = existing || { title: '', date: localDate(), time: '', repeat: 'once', ...preset };
-  openModal(existing ? '编辑提醒' : '添加提醒', `<form id="reminder-form" class="form-grid"><label class="field">提醒内容<input name="title" value="${esc(reminder.title)}" maxlength="80" required placeholder="吃鱼油"></label><div class="field-row"><label class="field">日期<input name="date" type="date" value="${esc(reminder.date)}" required></label><label class="field">时间<input name="time" type="time" value="${esc(reminder.time)}" required></label></div><label class="field">重复<select name="repeat"><option value="once" ${reminder.repeat === 'once' ? 'selected' : ''}>仅一次</option><option value="daily" ${reminder.repeat === 'daily' ? 'selected' : ''}>每天</option></select></label><p class="field-note">保存在本地预览，尚未连接设备提醒服务。</p><div class="modal-actions">${existing ? `<button class="button danger" type="button" id="delete-reminder">${icon('trash-2')}删除</button>` : ''}${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
-  $('reminder-form').addEventListener('submit', (event) => {
+  openModal(existing ? '编辑提醒' : '添加提醒', `<form id="reminder-form" class="form-grid"><label class="field">提醒内容<input name="title" value="${esc(reminder.title)}" maxlength="80" required placeholder="吃鱼油"></label><div class="field-row"><label class="field">日期<input name="date" type="date" value="${esc(reminder.date)}" required></label><label class="field">时间<input name="time" type="time" value="${esc(reminder.time)}" required></label></div><label class="field">重复<select name="repeat"><option value="once" ${reminder.repeat === 'once' ? 'selected' : ''}>仅一次</option><option value="daily" ${reminder.repeat === 'daily' ? 'selected' : ''}>每天</option></select></label><div class="modal-actions">${existing ? `<button class="button danger" type="button" id="delete-reminder">${icon('trash-2')}删除</button>` : ''}${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
+  $('reminder-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const title = String(form.get('title')).trim();
     if (!title) { event.currentTarget.elements.title.setCustomValidity('请填写提醒内容'); event.currentTarget.reportValidity(); return; }
     const values = { title, date: String(form.get('date')), time: String(form.get('time')), repeat: String(form.get('repeat')) };
+    if (device.id === hardwareDeviceId) {
+      try {
+        await api('/api/reminders', { method: 'POST', body: { message: title,
+          due_at: new Date(values.date + 'T' + values.time).toISOString(), repeat: values.repeat, idempotency_key: uid() } });
+        if (existing) await api(`/api/reminders/${existing.id}/cancel`, { method: 'POST' });
+        closeModal(); activeTab = 'reminders'; setPanel(false); await refreshReminders(); render(); toast('提醒已保存');
+      } catch (error) { toast(error.message); }
+      return;
+    }
     if (existing) Object.assign(existing, values);
     else device.reminders.push({ ...values, id: uid(), done: false });
     persist(); closeModal(); activeTab = 'reminders'; setPanel(false); render(); toast('提醒已保存到本地预览');
   });
-  $('delete-reminder')?.addEventListener('click', () => {
+  $('delete-reminder')?.addEventListener('click', async () => {
+    if (device.id === hardwareDeviceId) {
+      try {
+        await api(`/api/reminders/${id}/cancel`, { method: 'POST' });
+        closeModal(); await refreshReminders(); toast('提醒已取消');
+      } catch (error) { toast(error.message); }
+      return;
+    }
     device.reminders = device.reminders.filter((entry) => entry.id !== id);
     persist(); closeModal(); renderPanel(); toast('已删除预览提醒');
   });
@@ -622,7 +731,6 @@ function setVoiceButton() {
 }
 function speakAnswer(text) {
   if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return false;
-  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN';
   utterance.rate = .98;
@@ -631,7 +739,7 @@ function speakAnswer(text) {
 }
 async function sendVoiceAudio(blob) {
   voiceQuery.busy = true;
-  setVoiceStatus('正在识别并查询库存');
+  setVoiceStatus('正在理解并处理');
   setVoiceButton();
   try {
     const response = await fetch('/api/voice/query', {
@@ -642,6 +750,7 @@ async function sendVoiceAudio(blob) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || `语音服务返回 ${response.status}`);
     answer(`你说：${payload.transcript}\n\n${payload.answer}`);
+    await refreshInventory(); await refreshReminders();
     setVoiceStatus(speakAnswer(payload.answer) ? '回答已播报' : '回答已返回，浏览器不支持语音合成');
   } catch (error) {
     answer('语音提问失败：' + error.message);
@@ -666,6 +775,7 @@ async function toggleVoiceRecording() {
     return;
   }
   try {
+    window.speechSynthesis?.cancel();
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? { mimeType: 'audio/webm;codecs=opus' } : {};
     const recorder = new MediaRecorder(stream, options);
@@ -687,28 +797,27 @@ async function toggleVoiceRecording() {
     answer('无法访问电脑麦克风：' + error.message);
   }
 }
-function submitCommand(event) {
+async function submitCommand(event) {
   event.preventDefault();
   const raw = $('command-input').value.trim();
-  if (!raw) return;
-  if (raw.includes('提醒')) {
-    const title = raw.split('提醒我')[1]?.replace(/[。！!，,]/g, '').trim() || '';
-    answer('请补充或核对提醒时间，保存后会出现在预览列表。');
-    openReminder('', { title, repeat: raw.includes('每天') ? 'daily' : 'once' });
-    return;
-  }
-  const term = raw.replace(/[？?。！!，,]/g, '').replace(/请问|帮我找一下|帮我找找|帮我找|我想找|我的|在哪里|在哪儿|在哪|放哪了|放在哪里了|放在哪里|找一下|找找/g, '').trim();
-  if (!term) { answer('请输入要找的物品名称。'); return; }
-  const matches = state.devices.flatMap((device) => device.items.filter((item) => item.name.includes(term)).map((item) => ({ device, item })));
-  if (!matches.length) { answer('当前预览记录里没有找到“' + term + '”。'); return; }
-  const { device, item } = matches[0];
-  switchDevice(device.id);
-  selectedDrawer = item.drawer;
-  drawerFilter = item.drawer;
-  query = item.name;
-  activeTab = 'items';
-  setPanel(false); render();
-  answer(matches.map((match) => `${match.item.name}在${match.device.name}的${ordinals[match.item.drawer - 1]}。`).join('\n'));
+  if (!raw || voiceQuery.busy || voiceQuery.recording) return;
+  voiceQuery.busy = true; setVoiceButton(); setVoiceStatus('正在处理');
+  try {
+    const payload = await api('/api/voice/text', { method: 'POST', signal: AbortSignal.timeout(600000),
+      body: { text: raw, cabinet_id: 'cabinet-01' } });
+    answer(payload.answer);
+    await refreshInventory(); await refreshReminders();
+    if (!isPhysical()) switchDevice(hardwareDeviceId);
+    const first = payload.inventory?.items?.[0];
+    const item = first && physicalDevice.items.find((entry) => entry.id === first.id);
+    if (item) {
+      selectedDrawer = item.drawer || 1; drawerFilter = item.drawer;
+      query = item.name; inventoryMatches = payload.inventory.items.map((entry) => entry.id);
+      activeTab = 'items'; setPanel(false); render();
+    }
+    setVoiceStatus('处理完成');
+  } catch (error) { answer('处理失败：' + error.message); setVoiceStatus('服务不可用'); }
+  finally { voiceQuery.busy = false; setVoiceButton(); }
 }
 
 document.addEventListener('load', (event) => {
@@ -739,6 +848,15 @@ document.addEventListener('click', (event) => {
   if (button.dataset.sessionAction) changeSession(button.dataset.sessionId, button.dataset.sessionAction);
   if (button.dataset.reminder) openReminder(button.dataset.reminder);
   if (button.dataset.complete) completeReminder(button.dataset.complete);
+  if (button.dataset.playReminder) {
+    const entry = pendingDeliveries.find((item) => item.id === button.dataset.playReminder);
+    if (entry) playReminder(entry);
+  }
+  if (button.dataset.retryVoice) {
+    seenDoorResults.delete(button.dataset.retryVoice);
+    api(`/api/voice/interactions/${button.dataset.retryVoice}/retry`, { method: 'POST' })
+      .then(() => { closeModal(); toast('收纳语音已加入处理队列'); }).catch((error) => toast(error.message));
+  }
   if (button.dataset.themeChoice) { state.theme = button.dataset.themeChoice; persist(); applyTheme(); settings(); }
   const actions = {
     'next-suggestion': () => { suggestionIndex++; renderPanel(); },
@@ -754,7 +872,12 @@ document.addEventListener('click', (event) => {
   actions[button.dataset.action]?.();
 });
 document.addEventListener('input', (event) => {
-  if (event.target.id === 'item-search') { query = event.target.value; $('item-results').innerHTML = itemRows(); paintIcons(); }
+  if (event.target.id === 'item-search') {
+    query = event.target.value; inventoryMatches = null;
+    $('item-results').innerHTML = itemRows(); paintIcons();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => searchInventory().catch((error) => toast(error.message)), 180);
+  }
   if (event.target.matches('input[name="name"], input[name="title"]')) event.target.setCustomValidity('');
 });
 document.querySelector('.panel-tabs').addEventListener('keydown', (event) => {

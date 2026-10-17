@@ -56,7 +56,7 @@ class Sessions:
 
 class BridgeCapture:
     def __init__(self, sessions, bridge='http://127.0.0.1:8765', cabinet='cabinet-01',
-                 *, preroll_ms=2000, tail_ms=2000, max_seconds=180, max_bytes=512 * 1024 * 1024,
+                 *, preroll_ms=2000, tail_ms=2000, max_seconds=None, max_bytes=512 * 1024 * 1024,
                  clock=time.monotonic):
         self.sessions, self.cabinet, self.bridge = sessions, cabinet, bridge.rstrip('/')
         self.preroll_ms, self.tail_ms = preroll_ms, tail_ms
@@ -128,6 +128,8 @@ class BridgeCapture:
                 'created_at': utcnow(), 'epoch': epoch, 'boot_id': message.get('boot_id'),
                 'timestamp_basis': 'host_monotonic_arrival', 'frames': [], 'doors': [], 'reasons': [],
                 'bytes': 0, 'started_monotonic': now, 'close_at': None,
+                'trigger_monotonic': door.get('received_monotonic', now),
+                'capture_policy': {'preroll_ms': self.preroll_ms, 'tail_ms': self.tail_ms},
                 'last_generation': 0, 'last_saved_ms': None, 'origin_ms': None}
             if not self.armed:
                 self.reason('opening_without_observed_closed_state')
@@ -181,7 +183,7 @@ class BridgeCapture:
             data['bytes'] += len(image)
             data['last_saved_ms'] = ms
         write_json(Path(data['root']) / 'session.json', data)
-        if now - data['started_monotonic'] >= self.max_seconds:
+        if self.max_seconds is not None and now - data['started_monotonic'] >= self.max_seconds:
             self.finish('capture_duration_limit')
         elif data['close_at'] is not None and now - data['close_at'] >= self.tail_ms / 1000:
             self.finish()

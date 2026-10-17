@@ -269,8 +269,12 @@ class SpeechService:
         # Conflicting existing facts need review; neither source wins automatically.
         if any(item.get(k) is not None and item[k] != v for k, v in patch.items()):
             return {'status': 'pending', 'reason': 'speech_conflicts_with_existing_fact', 'suggestions': patch}
+        patch = {key: value for key, value in patch.items() if item.get(key) != value}
+        provenance = {key: provenance[key] for key in patch}
+        if not patch:
+            return {'status': 'unchanged', 'item_id': item['id']}
         receipt = Enrichment(self.store).apply(item['id'], patch, provenance, item['version'],
-            self.store.get_inventory_snapshot()['inventory_revision'], 'speech-facts:' + identity + ':' + str(utterance['version']),
+            self.store.get_inventory_snapshot(self.cabinet_id)['inventory_revision'], 'speech-facts:' + identity + ':' + str(utterance['version']),
             facts=True, cabinet_id=self.cabinet_id)
         self.refresh_task_drafts(identity)
         return receipt

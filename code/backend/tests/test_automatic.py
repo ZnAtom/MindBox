@@ -38,11 +38,11 @@ def test_production_configuration_does_not_reuse_temporary_comparison_key(monkey
     assert auto_settings().api_key == 'explicit-auto-key'
 
 
-def capture_session(sessions, *, drawer=2, opened_at=2, close_at=4):
+def capture_session(sessions, *, drawer=2, opened_at=2, close_at=4, tail_ms=500):
     now = [0.]
-    capture = BridgeCapture(sessions, clock=lambda: now[0], tail_ms=500)
+    capture = BridgeCapture(sessions, clock=lambda: now[0], tail_ms=tail_ms)
     frames = []
-    for index in range(int((close_at + 2) * 4)):
+    for index in range(int((close_at + tail_ms / 1000 + 2) * 4)):
         now[0] = index / 4
         frame = {'generation': index + 1, 'received_ms': index * 250,
                  'received_unix_ms': round(time.time() * 1000)}
@@ -222,6 +222,16 @@ def test_capture_outlives_ten_second_bridge_cache(tmp_path):
     assert manifest['frames'][0]['received_ms'] == 0
     assert manifest['frames'][-1]['received_ms'] == 22500
     assert len(manifest['frames']) == 91
+
+
+def test_two_second_preroll_and_tail_do_not_cut_off_a_long_operation(tmp_path):
+    _, sessions = services(tmp_path)
+    session = capture_session(sessions, opened_at=5, close_at=205, tail_ms=2000)
+    manifest = json.loads((Path(session['root']) / 'session.json').read_text())
+    assert manifest['complete']
+    assert manifest['capture_policy'] == {'preroll_ms': 2000, 'tail_ms': 2000}
+    assert manifest['frames'][0]['received_ms'] == 3000
+    assert manifest['frames'][-1]['received_ms'] == 207000
 
 
 @pytest.mark.parametrize('failure', ['gap', 'unknown', 'reboot'])
