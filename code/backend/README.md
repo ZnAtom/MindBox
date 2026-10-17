@@ -139,7 +139,7 @@ docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/do
 .\.venv\Scripts\python.exe -m app.video_probe --output var/experiments/image-control-new --image-controls var/experiments/video-chat-new
 ```
 
-`chat_video_url`和`responses_input_video`是待验证的格式假设，未取得学校视频协议文档；不能推断其模型或路由支持所有其他视频上传方式。2026-10-17实测4次MP4均未通过，三张图片对照通过，因此未发送v7/v9/v10等真实录像作视频直传对比。完整结果与下一步见[失败经验第8节](../doc/evaluation-and-lessons.md#8-视频直传最小测试2026-10-17)。当前`success` API日志仅表示取得回答，必须另看`report.json`的`native_video_status`和各trial的`passed`。
+`chat_video_url`和`responses_input_video`是待验证的格式假设，未取得学校视频协议文档；不能推断其模型或路由支持所有其他视频上传方式。2026-10-17实测4次MP4均未通过，三张图片对照通过，因此未发送v7/v9/v10等真实录像作视频直传对比。完整结果与下一步见[统一失败经验](../doc/evaluation-and-lessons.md#5-历史边界与统一失败经验)。当前`success` API日志仅表示取得回答，必须另看`report.json`的`native_video_status`和各trial的`passed`。
 
 ## P0动作回归
 
@@ -155,4 +155,15 @@ docker compose run --rm processor python -m app.cli inspect-run /app/var/runs/do
 
 `recorded`保留相反复核，`original`仅重放各窗口首轮回答，两者都不是新模型观察。`fresh`重新从原视频解码并调用动作观察，物品识别仍冻结；`--cache-from`仅按完整请求哈希命中，未命中才联网，cache_seed来源及哈希写manifest。`finalize`只对已提交的同item补名称，重复执行不再新增事务；pending不补成已入库。审计脚本只读数据库，汇总真实回执、调用/校验失败、输入哈希和当前测试报告。
 
-本轮实际目录：`p0-replay-recorded-20261017-01`、`p0-replay-original-20261017-01`、`p0-fresh-20261017-01`、`p0-final-20261017-01`；合并审计`var/review/p0-audit.json`。最终v9/v10/v8通过并各1件/revision2，v7失败未写库；103项程序测试通过。最终36次精确缓存命中、0次新增HTTP，不能算第二组独立识别准确率；ASR和真实提醒未重跑，Docker未构建。
+已保存目录：`p0-replay-recorded-20261017-01`、`p0-replay-original-20261017-01`、`p0-fresh-20261017-01`、`p0-final-20261017-01`；合并审计`var/review/p0-audit.json`。实际通过/失败、调用量与当前数据库结果统一见[评测](../doc/evaluation-and-lessons.md)。
+
+## 联合检查与v7溯源
+
+以下命令不读取密钥、不调用模型/ASR。v7仅在内存中重放/替换冻结观察，输出诊断；speech使用SQLite backup和归档资源创建新副本，接入保存的真实ASR/槽位，重复执行相同处理以检查幂等，保留源库哈希。
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.workflow_review v7 --output var/review/v7-module-review.json
+.\.venv\Scripts\python.exe -m scripts.workflow_review speech --root var/experiments/joint-review-new --removal-policy-reason '用户配置的到期后取出提示策略，不是音频原话'
+```
+
+speech目标目录必须不存在，副本沿用冻结源manifest/scope以便重现；不会回写源库，也不会新增库存。`--removal-policy-reason`仅用于v10，省略则只生成真实音频要求的任务。当前v9关联pending、v10已关联但任务缺日期/时间，均如实报告。架构统一见[处理流程](../doc/processing-flow.md)，结果与修改建议见[评测](../doc/evaluation-and-lessons.md)。
