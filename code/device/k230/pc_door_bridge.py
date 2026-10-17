@@ -4,13 +4,16 @@ import argparse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
 import re
+import signal
 import threading
 import time
 import uuid
 from urllib.parse import urlsplit
 
 from pc_usb_pull import CanMVBridge, default_storage
+from pc_audio import DoorAudioRecorder, input_devices, sounddevice_module
 
 
 EVENT_PREFIX = "MINDBOX_DOOR "
@@ -43,8 +46,12 @@ class DoorState:
         doors = message.get("open")
         if not isinstance(doors, list) or len(doors) != 3 or any(type(value) is not bool for value in doors):
             raise ValueError("Expected three explicit door states")
-        if message.get("source") not in ("key", "simulation", "sensor"):
+        if message.get("source") not in ("key", "simulation", "sensor", "vision"):
             raise ValueError("Unsupported door source")
+        if message.get("source") == "vision":
+            known = message.get("known")
+            if not isinstance(known, list) or len(known) != 3 or any(type(value) is not bool for value in known):
+                raise ValueError("Expected three vision observation states")
         kind, drawer = message.get("kind"), message.get("drawer")
         if kind == "snapshot":
             if drawer is not None:
@@ -67,6 +74,8 @@ class DoorState:
                         self.retired_boots.clear()
                     self.retired_boots.add(previous)
             self.message = dict(message, open=list(doors))
+            if message.get("source") == "vision":
+                self.message["known"] = list(message["known"])
             self.last_seen, self.transport = self.clock(), True
             self.condition.notify_all()
         return True
@@ -80,6 +89,7 @@ class DoorState:
         with self.condition:
             connected = self.transport and self.last_seen is not None and self.clock() - self.last_seen < HEARTBEAT_TIMEOUT
             return {"schema": 1, "cabinet_id": self.cabinet_id, "connected": connected,
+                    "received_monotonic": self.last_seen,
                     "state": self.message}
 
     def wait_snapshot(self, previous):
@@ -149,6 +159,7 @@ class CameraFrames:
             self.generation += 1
             item = {
                 "generation": self.generation,
+                "epoch": self.epoch,
                 "frame_id": frame.get("frame_id"),
                 "data": data,
                 "received_at": now,
@@ -240,10 +251,12 @@ class CameraFrames:
 class DoorServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, state, simulate=False):
+    def __init__(self, address, state, simulate=False, audio=None):
         super().__init__(address, DoorHandler)
         self.state, self.simulate = state, simulate
         self.camera = CameraFrames()
+        self.audio = audio
+        self.vision = None
         self.simulation_lock = threading.Lock()
         self.simulation_boot = uuid.uuid4().hex[:16]
         self.simulation_seq = 0
@@ -284,6 +297,26 @@ class DoorHandler(BaseHTTPRequestHandler):
             self.json_response(200, self.server.state.snapshot())
         elif self.path == "/api/camera/state":
             self.json_response(200, self.server.camera.snapshot())
+        elif self.path == "/api/audio/state":
+            self.json_response(200, self.server.audio.snapshot() if self.server.audio else
+                               {"enabled": False, "status": "disabled", "session": None, "last": None, "error": None})
+        elif self.path == "/api/vision/state":
+            self.json_response(200, self.server.vision.snapshot() if self.server.vision else
+                               {"enabled": False, "status": "disabled"})
+        elif self.path == "/api/vision/preview.jpg":
+            payload = self.server.vision.preview_jpeg() if self.server.vision else None
+            self.jpeg_response({"data": payload} if payload else None)
+        elif re.fullmatch(r"/api/vision/markers/[1-3]\.png", self.path):
+            if not self.server.vision:
+                self.json_response(409, {"error": "Start the bridge with --door-source vision"})
+                return
+            from pc_vision import marker_png
+            payload = marker_png(int(self.path.rsplit("/", 1)[1][0]))
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
         elif self.path == "/api/camera/cache":
             self.json_response(200, self.server.camera.cache_snapshot())
         elif re.fullmatch(r"/api/camera/frames/[0-9]+\.jpg", self.path):
@@ -407,14 +440,42 @@ def watch_usb(state, camera, storage, stopped):
 
 
 def main():
+    def stop_service(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_service)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--storage", default=str(default_storage()))
     parser.add_argument("--cabinet", default="cabinet-01")
     parser.add_argument("--simulate", action="store_true", help="No USB; enable local simulated door events")
+    parser.add_argument("--door-source", choices=("key", "vision"), default="key")
+    parser.add_argument("--vision-open-confirm", type=float, default=.3, help="Seconds of marker visibility to confirm opening")
+    parser.add_argument("--vision-close-delay", type=float, default=2, help="Seconds of marker absence to confirm closure")
+    parser.add_argument("--record-audio", action="store_true", help="Record the PC microphone while doors are open")
+    parser.add_argument("--audio-device", help="Input device ID or name; default is the system input")
+    parser.add_argument("--audio-output", default=str(Path(__file__).resolve().parent / "recordings"))
+    parser.add_argument("--audio-tail", type=float, default=2, help="Seconds after all drawers close (0-30)")
+    parser.add_argument("--list-audio-devices", action="store_true", help="List PC microphones and exit")
     args = parser.parse_args()
+    if args.simulate and args.door_source == "vision":
+        parser.error("--simulate cannot be combined with --door-source vision")
+    if args.list_audio_devices:
+        print(json.dumps(input_devices(), ensure_ascii=False, indent=2))
+        return
+    if args.record_audio:
+        sounddevice_module()
+    device = int(args.audio_device) if args.audio_device and args.audio_device.isdecimal() else args.audio_device
     state, stopped = DoorState(args.cabinet), threading.Event()
-    server = DoorServer(("127.0.0.1", args.port), state, args.simulate)
+    audio = DoorAudioRecorder(state, args.audio_output, enabled=args.record_audio,
+                              device=device, tail_seconds=args.audio_tail)
+    server = DoorServer(("127.0.0.1", args.port), state, args.simulate, audio=audio)
+    if args.door_source == "vision":
+        from pc_vision import VisionDoors
+        server.vision = VisionDoors(state, server.camera, open_confirm_seconds=args.vision_open_confirm,
+                                   close_delay_seconds=args.vision_close_delay)
+        server.vision.start()
+    audio.start()
     if args.simulate:
         def heartbeat():
             while not stopped.is_set():
@@ -422,7 +483,8 @@ def main():
                 stopped.wait(2)
         worker = threading.Thread(target=heartbeat, daemon=True)
     else:
-        worker = threading.Thread(target=watch_usb, args=(state, server.camera, args.storage, stopped), daemon=True)
+        board_state = DoorState(args.cabinet) if server.vision else state
+        worker = threading.Thread(target=watch_usb, args=(board_state, server.camera, args.storage, stopped), daemon=True)
     worker.start()
     print("Door bridge:", "http://127.0.0.1:%d" % server.server_port,
           "(SIMULATION)" if args.simulate else "(USB)", flush=True)
@@ -432,7 +494,14 @@ def main():
         pass
     finally:
         stopped.set()
-        server.server_close()
+        try:
+            try:
+                if server.vision:
+                    server.vision.stop()
+            finally:
+                audio.stop()
+        finally:
+            server.server_close()
 
 
 if __name__ == "__main__":
