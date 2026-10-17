@@ -6,6 +6,7 @@ import shutil
 
 from .database import Conflict, Database, DatabaseError, NotFound, encode, fingerprint, new_id, timestamp, utcnow
 from .inventory_schemas import CommitPlan, ItemValues
+from .policy import descriptive_identity
 
 
 def require(connection, table, identity):
@@ -479,7 +480,7 @@ class Store:
                         if decision.patch:
                             raise DatabaseError('Coarse insertion cannot apply detailed identity patches')
                         category = candidate.get('category', '未知')
-                        values = {'name': '饮品' if category == '饮品' else '未知食品' if category == '食品' else '未知物品',
+                        values = {**descriptive_identity(candidate),
                                   'category': category, 'product_match_status': 'category_only',
                                   'field_meta': {}}
                     values['presence_status'] = 'present'

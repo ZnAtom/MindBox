@@ -23,6 +23,11 @@ def frames_from(root):
     frames = {f['id']: f for f in load(root / 'action-media.json')['frames']}
     for call in load(root / 'action-tool-trace.json')['trace']:
         frames.update({f['id']: f for f in call['result'].get('frames', [])})
+    matches = root / 'appearance-matches.json'
+    if matches.exists():
+        for frame_id, hints in load(matches).items():
+            if frame_id in frames:
+                frames[frame_id]['appearance_hints'] = hints
     return frames
 
 

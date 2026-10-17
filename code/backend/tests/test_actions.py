@@ -1,7 +1,7 @@
 import pytest
 
 from app.action_schemas import ScenePlan, StateComparison
-from app.actions import EvidenceTools, guard_states, reconcile, review_conflicts, validate_plan, validate_states
+from app.actions import EvidenceTools, guard_states, instance_conflicts, reconcile, review_conflicts, validate_plan, validate_states
 
 
 def state(location, frame):
@@ -243,6 +243,29 @@ def test_same_frame_rest_reversal_is_not_accepted_but_unknown_can_be_clarified()
     assert not review_conflicts(old, new)
     old['objects'][0]['after']['at_rest'] = False
     assert review_conflicts(old, new)[0]['reason'] == 'review_reversed_same_frame_rest_state'
+
+
+def test_review_can_move_before_endpoint_earlier_when_media_times_are_disjoint():
+    old = observation([transition('a', 'inside', 'inside', '2', '3')])
+    new = observation([transition('a', 'outside', 'inside', '0', '1')])
+    frames = {str(i): {'media_time_ms': i * 100} for i in range(4)}
+    assert review_conflicts(old, new, frames) == []
+    assert review_conflicts(old, observation([transition('a', 'outside', 'inside', '3', '3')]), frames)
+
+
+def test_overlapping_appearance_hints_block_two_candidate_identity():
+    objects = [transition('a', 'inside', 'inside', 'f', 'g'), transition('b', 'inside', 'inside', 'f', 'g')]
+    observation_value = observation(objects)
+    frames = {
+        'f': {'media_time_ms': 0, 'appearance_hints': [
+            {'candidate_id': 'a', 'bbox_pixels': [10, 10, 110, 110]},
+            {'candidate_id': 'b', 'bbox_pixels': [12, 12, 108, 108]}]},
+        'g': {'media_time_ms': 1000, 'appearance_hints': []},
+    }
+    assert instance_conflicts(observation_value, frames)[0]['reason'] == 'overlapping_instance_hints'
+    result = reconcile(observation_value, [], frames)
+    assert result['status'] == 'pending'
+    assert any(p['reason'] == 'overlapping_instance_hints' for p in result['pending'])
 
 
 def test_regular_window_actually_supplies_timestamped_middle_frames(tmp_path, monkeypatch):

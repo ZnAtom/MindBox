@@ -14,7 +14,7 @@ from .database import Conflict, DatabaseError, encode, fingerprint, timestamp, u
 from .enrichment import Enrichment
 from .experiments import file_hash
 from .inventory_schemas import Strict
-from .store import require
+from .store import item_value, require
 
 
 class CommandSlot(Strict):
@@ -107,6 +107,33 @@ def normalized_facts(slots, clock=None):
             'note': 'Calendar anniversary is a date candidate; expiry cutoff needs an explicit boundary policy.'}
 
 
+_SUBJECT_GROUPS = {
+    'drink': {'饮品', '饮料', '汽水', '可乐', '茶', '果汁', '咖啡', '牛奶', '水'},
+    'food': {'食品', '食物', '零食', '辣条', '软糖', '鸡胸肉', '肉', '面包', '饼干', '薯片', '坚果', '水果'},
+}
+
+
+def _compact(value):
+    return re.sub(r'[\W_]+', '', str(value or '').lower())
+
+
+def _subject_match(subject, item):
+    """Return a conservative score and reason for exact or category-compatible speech links."""
+    query = _compact(subject)
+    if not query:
+        return 0, None
+    fields = {field: _compact(item.get(field)) for field in ('name', 'description', 'brand', 'variant', 'category')}
+    if any(query in value or value in query for value in fields.values() if value):
+        return 3, 'normalized_name_or_description'
+    query_group = next((group for group, terms in _SUBJECT_GROUPS.items() if query in {_compact(t) for t in terms}), None)
+    category = fields['category']
+    category_group = next((group for group, terms in _SUBJECT_GROUPS.items()
+                           if category in {_compact(t) for t in terms}), None)
+    if query_group and query_group == category_group:
+        return 1, 'category_compatible'
+    return 0, None
+
+
 class SpeechService:
     def __init__(self, context, cabinet_id='cabinet-01'):
         self.context, self.store, self.cabinet_id = context, context.store, cabinet_id
@@ -150,6 +177,36 @@ class SpeechService:
                 raise DatabaseError('Wrong speech cabinet')
             return self._value(row)
 
+    @staticmethod
+    def _refresh_task_drafts(connection, utterance_id, item_id):
+        item = None
+        if item_id:
+            row = connection.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone()
+            if row:
+                item = item_value(dict(row))
+        for command in connection.execute("SELECT * FROM task_commands WHERE utterance_id=? AND status='needs_input'",
+                                          (utterance_id,)).fetchall():
+            data = json.loads(command['data_json'])
+            missing = []
+            if not item_id:
+                missing.append('item_link')
+            if not item or not item.get('expires_on'):
+                missing.append('expiry_date')
+            missing.append('expiry_boundary')
+            if command['kind'] == 'before_expiry':
+                missing.append('reminder_at')
+            if data.get('missing') == missing and command['item_id'] == item_id:
+                continue
+            data['missing'] = missing
+            connection.execute('UPDATE task_commands SET item_id=?, version=version+1, data_json=? WHERE id=?',
+                               (item_id, encode(data), command['id']))
+
+    def refresh_task_drafts(self, identity):
+        utterance = self.get(identity)
+        with self.store.db.transaction() as connection:
+            self._refresh_task_drafts(connection, identity, utterance['item_id'])
+        return self.get(identity)
+
     def link(self, identity):
         utterance = self.get(identity)
         subject = utterance['parsed']['slots']['subject_raw']
@@ -168,17 +225,22 @@ class SpeechService:
                     (item['id'], utterance['source_video_hash']))
                 intervals = [e['event_window_ms'] for e in (json.loads(r[0]) for r in events) if e['kind'] == 'add']
                 close = any(end >= utterance['start_ms'] - 5000 and start <= utterance['end_ms'] for start, end in intervals)
-                text = ' '.join(str(item.get(f) or '') for f in ('name', 'description', 'brand', 'variant'))
-                if subject and subject in text and close and item['presence_status'] == 'present':
-                    candidates.append(item['id'])
-        linked = candidates[0] if len(candidates) == 1 else None
+                score, reason = _subject_match(subject, item)
+                if score and close and item['presence_status'] == 'present':
+                    candidates.append({'item_id': item['id'], 'score': score, 'reason': reason})
+        best_score = max((candidate['score'] for candidate in candidates), default=0)
+        best = [candidate for candidate in candidates if candidate['score'] == best_score]
+        linked = best[0]['item_id'] if len(best) == 1 else None
         if utterance['item_id'] and utterance['item_id'] != linked:
             raise Conflict('Speech already linked; changed association needs review')
-        parsed = {**utterance['parsed'], 'link': {'candidates': candidates, 'subject': subject,
-                  'policy': 'same-video-single-new-item-with-type-and-time', 'reason': None if linked else 'ambiguous_or_no_confirmed_item'}}
+        parsed = {**utterance['parsed'], 'link': {'candidates': [candidate['item_id'] for candidate in candidates],
+                  'scored_candidates': candidates, 'subject': subject,
+                  'policy': 'same-video-single-new-item-with-type-or-name-and-time',
+                  'reason': None if linked else 'ambiguous_or_no_confirmed_item'}}
         with self.store.db.transaction() as connection:
             connection.execute('UPDATE speech_utterances SET item_id=?, link_status=?, parsed_json=? WHERE id=?',
                                (linked, 'linked' if linked else 'pending', encode(parsed), identity))
+            self._refresh_task_drafts(connection, identity, linked)
         return self.get(identity)
 
     def apply_facts(self, identity):
@@ -196,6 +258,7 @@ class SpeechService:
                 provenance[field] = {'source': source, 'certainty': 'recorded', 'evidence_refs': [reference],
                                      'extractor': 'speech-slots-v1'}
         if not patch:
+            self.refresh_task_drafts(identity)
             return {'status': 'needs_input', 'missing': facts['missing']}
         with self.store.db.connect() as connection:
             existing = connection.execute('SELECT receipt_json FROM inventory_commits WHERE cabinet_id=? AND idempotency_key=?',
@@ -206,6 +269,8 @@ class SpeechService:
         # Conflicting existing facts need review; neither source wins automatically.
         if any(item.get(k) is not None and item[k] != v for k, v in patch.items()):
             return {'status': 'pending', 'reason': 'speech_conflicts_with_existing_fact', 'suggestions': patch}
-        return Enrichment(self.store).apply(item['id'], patch, provenance, item['version'],
+        receipt = Enrichment(self.store).apply(item['id'], patch, provenance, item['version'],
             self.store.get_inventory_snapshot()['inventory_revision'], 'speech-facts:' + identity + ':' + str(utterance['version']),
             facts=True, cabinet_id=self.cabinet_id)
+        self.refresh_task_drafts(identity)
+        return receipt

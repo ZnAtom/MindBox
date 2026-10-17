@@ -57,6 +57,50 @@ def signature(image):
     return sharpness, bad_exposure, thumb
 
 
+def visual_quality(sharpness, bad_exposure, width, height, *, visibility_fraction=None,
+                   occlusion_level='unknown', edge_contacts=0):
+    """Diagnostic bands at signature's 256x144 scale, never a storage veto.
+
+    Texture affects Laplacian variance; visibility is a model estimate, not a mask area.
+    """
+    if width < 32 or height < 32:
+        blur = 'severe'
+    elif sharpness < 35:
+        blur = 'severe'
+    elif sharpness < 120:
+        blur = 'soft'
+    else:
+        blur = 'clear'
+    exposure = 'severe' if bad_exposure > 0.55 else 'elevated' if bad_exposure > 0.30 else 'normal'
+    visibility = 'unknown'
+    if visibility_fraction is not None:
+        visibility = ('severe' if visibility_fraction < 0.45 else
+                      'partial' if visibility_fraction < 0.70 else 'mostly_visible')
+    occlusion = occlusion_level if occlusion_level in ('none', 'mild', 'moderate', 'severe') else 'unknown'
+    hard_reasons = []
+    if blur == 'severe':
+        hard_reasons.append('severe_blur')
+    if exposure == 'severe':
+        hard_reasons.append('severe_exposure')
+    if visibility == 'severe':
+        hard_reasons.append('low_visible_fraction')
+    if occlusion == 'severe':
+        hard_reasons.append('severe_occlusion')
+    if edge_contacts >= 2:
+        hard_reasons.append('crop_touches_multiple_image_edges')
+    tier = 'poor' if hard_reasons else 'soft' if blur == 'soft' or exposure == 'elevated' or visibility == 'partial' or occlusion == 'moderate' else 'clear'
+    sharpness_score = min(1.0, max(0.0, math.log1p(max(0.0, sharpness)) / math.log1p(1500)))
+    score = round(max(0.0, min(1.0, sharpness_score * (1 - min(1.0, bad_exposure)) *
+                             (0.6 if visibility == 'partial' else 1.0)), 4)
+    return {'tier': tier, 'blur': blur, 'exposure': exposure, 'visibility': visibility,
+            'occlusion': occlusion, 'score': score, 'sharpness': round(float(sharpness), 2),
+            'bad_exposure': round(float(bad_exposure), 4), 'width': int(width), 'height': int(height),
+            'edge_contacts': int(edge_contacts), 'warnings': hard_reasons,
+            'visibility_fraction_estimate': visibility_fraction,
+            'threshold_status': 'provisional_uncalibrated',
+            'policy': 'diagnostic_only_identity_and_action_evidence_decide_storage'}
+
+
 def action_frames(path, output, fps=8, start_ms=0, end_ms=None, max_frames=480):
     """Keep temporal coverage and the real last frame; never silently truncate."""
     path, output = Path(path), Path(output)

@@ -7,6 +7,18 @@ def compact(value):
     return re.sub(r'[^\w]', '', unicodedata.normalize('NFKC', value or '')).lower()
 
 
+def descriptive_identity(item):
+    """Use observed words, without guessing contents of an unfamiliar package."""
+    description = (item.get('description') or '').strip()
+    name = (item.get('name') or '').strip()
+    generic = {'', '未知', '其他', '未知物品', '物品', 'unknown', 'object', 'item'}
+    if name.lower() in generic:
+        name = re.split(r'[。；;\n]', description)[0].strip(' ，,')[:100] or '待辨认物品'
+    return {'name': name[:120], 'name_kind': 'attribute_description',
+            'category': item.get('category') or '未知',
+            'description': description[:1000] or name[:120]}
+
+
 def guard_identity(item):
     item = dict(item)
     item['model_reported_support'] = {'category': item['category_support'], 'identity': item['identity_support']}

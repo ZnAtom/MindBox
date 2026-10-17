@@ -5,7 +5,7 @@ from .database import Conflict, DatabaseError
 from .inventory_schemas import FieldSource, ItemValues
 from .store import Store, item_value, require
 
-IDENTITY_FIELDS = {'name', 'description', 'category', 'brand', 'variant', 'product_id', 'product_match_status'}
+IDENTITY_FIELDS = {'name', 'name_kind', 'description', 'category', 'brand', 'variant', 'product_id', 'product_match_status'}
 FACT_FIELDS = {'production_on', 'expires_on', 'shelf_life_raw', 'notes'}
 
 

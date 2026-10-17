@@ -14,7 +14,11 @@ class Tasks:
         self.scheduling = Scheduling(self.db)
 
     def draft(self, utterance_id, removal_policy_reason=None):
-        utterance = SpeechService(self.context, self.cabinet_id).get(utterance_id)
+        speech = SpeechService(self.context, self.cabinet_id)
+        utterance = speech.get(utterance_id)
+        # A draft may have been created before the speech-to-item link or date facts arrived.
+        speech.refresh_task_drafts(utterance_id)
+        utterance = speech.get(utterance_id)
         slots = [{**slot, 'origin': 'speech'} for slot in utterance['parsed']['slots']['commands']]
         if removal_policy_reason:
             if not isinstance(removal_policy_reason, str) or not removal_policy_reason.strip():
@@ -31,9 +35,14 @@ class Tasks:
                     continue
                 identity = new_id()
                 data = {'raw': slot['raw'], 'origin': slot['origin'], 'speech_version': utterance['version'],
-                        'missing': ['item_link'] if not utterance['item_id'] else [],
+                        'missing': [],
                         'request': 'eat_before_expiry' if slot['kind'] == 'before_expiry' else 'warn_on_expired_removal'}
-                data['missing'] += ['expiry_date', 'expiry_boundary']
+                item = self.context.store.get_item(utterance['item_id']) if utterance['item_id'] else None
+                if not utterance['item_id']:
+                    data['missing'].append('item_link')
+                if not item or not item.get('expires_on'):
+                    data['missing'].append('expiry_date')
+                data['missing'].append('expiry_boundary')
                 if slot['kind'] == 'before_expiry':
                     data['missing'].append('reminder_at')
                 connection.execute('INSERT INTO task_commands VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL, ?)',

@@ -1,8 +1,8 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck } from 'lucide';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck };
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -11,6 +11,7 @@ const drawerNames = ['零食与补给', '日常用品', '数码与随身'];
 const ordinals = ['第一层', '第二层', '第三层'];
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
 const mobile = matchMedia('(max-width: 760px)');
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
 const uid = () => crypto.randomUUID();
 
 function localDate(offset = 0) {
@@ -68,6 +69,8 @@ let panelCollapsed = mobile.matches;
 let toastTimer;
 let cabinet;
 let storageWarningShown = false;
+let transferFeedback = null;
+let receiptTimer;
 
 function persist() {
   try { localStorage.setItem(storageKey, JSON.stringify(state)); }
@@ -92,7 +95,16 @@ function applyTheme() {
   paintIcons();
 }
 function syncModel(instant = false) {
-  cabinet?.update({ open: activeDevice().open, drawer: selectedDrawer, theme: resolvedTheme(), reduced: state.reducedMotion, instant });
+  cabinet?.update({ open: activeDevice().open, items: activeDevice().items, drawer: selectedDrawer, theme: resolvedTheme(), reduced: state.reducedMotion, instant });
+}
+function transferBusy() { return transferFeedback?.phase === 'moving'; }
+function isNewRecord(id) { return Boolean(transferFeedback && id === transferFeedback.id); }
+function syncTransferControls() {
+  const busy = transferBusy();
+  document.querySelectorAll('#demo-drawer, #demo-insert, [data-action="demo-drawer"], [data-action="demo-insert"], #remove-item').forEach((button) => { button.disabled = busy; });
+  const hasItems = activeDevice().items.some((item) => item.drawer === selectedDrawer);
+  document.querySelectorAll('#demo-remove, [data-action="demo-remove"]').forEach((button) => { button.disabled = busy || !hasItems; });
+  document.documentElement.classList.toggle('reduce-motion', state.reducedMotion || motionPreference.matches);
 }
 function setPanel(collapsed, rememberFocus = false) {
   panelCollapsed = collapsed;
@@ -111,9 +123,18 @@ function selectDrawer(drawer) {
 }
 function renderDock() {
   const device = activeDevice();
-  $('drawer-dock').innerHTML = device.drawerNames.map((name, index) => `<button class="drawer-button ${selectedDrawer === index + 1 ? 'selected' : ''} ${device.open[index] ? 'open' : ''}" data-select-drawer="${index + 1}" aria-pressed="${selectedDrawer === index + 1}" aria-label="选择${ordinals[index]}：${esc(name)}"><span class="drawer-number">0${index + 1}</span><span><strong>${esc(name)}</strong><small>${device.open[index] ? '已打开' : '已合上'} · ${device.items.filter((item) => item.drawer === index + 1).length} 件</small></span></button>`).join('');
+  $('drawer-dock').innerHTML = device.drawerNames.map((name, index) => `<button class="drawer-button ${selectedDrawer === index + 1 ? 'selected' : ''} ${device.open[index] ? 'open' : ''} ${transferFeedback?.drawer === index + 1 ? (transferBusy() ? 'transferring' : 'just-changed') : ''}" data-select-drawer="${index + 1}" aria-pressed="${selectedDrawer === index + 1}" aria-label="选择${ordinals[index]}：${esc(name)}"><span class="drawer-number">0${index + 1}</span><span><strong>${esc(name)}</strong><small>${device.open[index] ? '已打开' : '已合上'} · ${device.items.filter((item) => item.drawer === index + 1).length} 件</small></span></button>`).join('');
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
   $('scene-state').innerHTML = `<span class="status-dot ${opened.length ? 'active' : ''}"></span><span>${opened.length ? opened.join('、') + '已打开' : '抽屉已合上'}</span>`;
+  $('scene-state').classList.remove('transferring', 'receipt');
+  if (transferFeedback) {
+    const verb = transferFeedback.direction === 'in' ? '放入' : '取出';
+    const moving = transferBusy();
+    $('scene-state').classList.add(moving ? 'transferring' : 'receipt');
+    $('scene-state').innerHTML = `${icon(moving ? (transferFeedback.direction === 'in' ? 'arrow-down-left' : 'arrow-up-right') : 'check')}<span>${moving ? '正在' : '已'}${verb} ${esc(transferFeedback.name)} · ${ordinals[transferFeedback.drawer - 1]}</span>`;
+  }
+  syncTransferControls();
+  paintIcons();
 }
 function renderDevices() {
   $('device-list').innerHTML = state.devices.map((device) => `<button class="device-row ${device.id === activeId ? 'selected' : ''}" data-device="${esc(device.id)}" aria-pressed="${device.id === activeId}"><span class="device-symbol">${icon('archive')}</span><span class="device-copy"><strong>${esc(device.name)}</strong><small>3 层抽屉 · ${device.items.length} 件物品</small></span>${device.id === activeId ? icon('check') : ''}</button>`).join('');
@@ -135,16 +156,16 @@ function liveView() {
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
   if (!opened.length) return '';
   const latest = device.activity[0];
-  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button></div></div><div class="camera-empty">${icon('camera-off')}<span>摄像头未连接</span></div>${latest?.demo ? `<div class="live-event">${icon('check-check')}<span>${esc(latest.title)} · 已更新预览</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
+  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button><button class="icon-button small" data-action="demo-remove" aria-label="演示取出一件物品" data-tooltip="演示取出物品">${icon('package-minus')}</button></div></div><div class="camera-empty">${icon('camera-off')}<span>摄像头未连接</span></div>${latest?.demo ? `<div class="live-event ${isNewRecord(latest.id) ? 'new-record' : ''}">${icon(latest.direction === 'in' ? 'arrow-down-left' : 'arrow-up-right')}<span>${esc(latest.title)} · 已更新预览</span><span class="change-count">${latest.direction === 'in' ? '+1' : '−1'} 件</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
 }
 function renderOverview() {
   const device = activeDevice();
   const reminders = device.reminders.filter((reminder) => !reminder.done).slice(0, 2);
-  return `${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">共 ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] ? 'open' : ''}"><span class="status-dot"></span>${device.open[index] ? '已打开' : '已合上'}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1]}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
+  return `${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">共 ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] ? 'open' : ''}"><span class="status-dot"></span>${device.open[index] ? '已打开' : '已合上'}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row ${isNewRecord(event.id) ? 'new-record' : ''}">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1]}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
 }
 function itemRows() {
   const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) && item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return items.length ? items.map((item) => `<div class="item-row"><button class="item-action" data-item="${esc(item.id)}"><span class="item-symbol">${icon(item.kind || 'package')}</span><span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1]} · ${monthDay(item.storedOn)} 放入${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : '这里还没有物品'}</div>`;
+  return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}"><span class="item-symbol">${icon(item.kind || 'package')}</span><span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1]} · ${monthDay(item.storedOn)} 放入${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : '这里还没有物品'}</div>`;
 }
 function renderItems() {
   return `<label class="search-field">${icon('search')}<input id="item-search" aria-label="搜索当前设备物品" placeholder="搜索物品" value="${esc(query)}" maxlength="80"></label><div class="filter-tabs" aria-label="按抽屉筛选">${['全部', '一层', '二层', '三层'].map((name, index) => `<button data-filter="${index}" class="${drawerFilter === index ? 'active' : ''}" aria-pressed="${drawerFilter === index}">${name}</button>`).join('')}</div><div id="item-results">${itemRows()}</div>`;
@@ -169,6 +190,7 @@ function renderPanel() {
     button.tabIndex = selected ? 0 : -1;
   });
   paintIcons();
+  syncTransferControls();
 }
 function render(instant = false) {
   const device = activeDevice();
@@ -184,6 +206,10 @@ function setTab(tab) {
   $('panel-content').scrollTop = 0;
 }
 function switchDevice(id) {
+  cabinet?.cancelTransfer();
+  clearTimeout(receiptTimer);
+  transferFeedback = null;
+  $('transfer-label').hidden = true;
   activeId = id;
   selectedDrawer = 1;
   drawerFilter = 0;
@@ -192,21 +218,66 @@ function switchDevice(id) {
   render(true);
 }
 function toggleDrawer() {
+  if (transferBusy()) return;
   const device = activeDevice();
   device.open[selectedDrawer - 1] = !device.open[selectedDrawer - 1];
   if (activeTab !== 'overview') activeTab = 'overview';
   render(); persist();
-  if (panelCollapsed) document.querySelector('.activity-dot').hidden = true;
 }
 function demoInsert() {
+  if (transferBusy()) return;
+  const presets = [['燕麦能量棒', 'cookie'], ['维生素', 'pill'], ['USB-C 充电线', 'cable']];
+  const [name, kind] = presets[selectedDrawer - 1];
+  const item = makeItem(uid(), name, selectedDrawer, kind, 0, kind === 'cable' ? '' : localDate(30), '', kind === 'cookie' ? '这个保质期是下个月今天。' : '');
+  recordTransfer('in', item);
+}
+function demoRemove() {
+  if (transferBusy()) return;
+  const item = activeDevice().items.find((entry) => entry.drawer === selectedDrawer);
+  if (!item) { toast('这个抽屉里暂无可取出的物品'); return; }
+  recordTransfer('out', item);
+}
+function recordTransfer(direction, item) {
+  if (transferBusy()) return;
   const device = activeDevice();
-  const drawer = device.open[selectedDrawer - 1] ? selectedDrawer : device.open.findIndex(Boolean) + 1;
-  if (!drawer) { toast('先在演示中打开一个抽屉'); return; }
-  const item = makeItem(uid(), '燕麦能量棒', drawer, 'cookie', 0, localDate(30), '', '这个保质期是下个月今天。');
-  device.items.unshift(item);
-  device.activity.unshift({ title: '放入燕麦能量棒', drawer, time: timeNow(), direction: 'in', demo: true });
+  if (direction === 'out' && !device.items.some((entry) => entry.id === item.id)) return;
+  clearTimeout(receiptTimer);
+  const id = uid();
+  selectedDrawer = item.drawer;
+  device.open[item.drawer - 1] = true;
+  if (direction === 'in') device.items.unshift(item);
+  else device.items = device.items.filter((entry) => entry.id !== item.id);
+  device.activity.unshift({ id, title: (direction === 'in' ? '放入' : '取出') + item.name, drawer: item.drawer, time: timeNow(), direction, demo: true });
+  transferFeedback = { id, itemId: item.id, name: item.name, drawer: item.drawer, direction, phase: 'moving' };
+  $('transfer-label').hidden = true;
+  $('transfer-name').textContent = item.name;
+  $('transfer-direction').textContent = ordinals[item.drawer - 1] + ' / ' + (direction === 'in' ? '正在放入' : '正在取出');
+  $('transfer-symbol').innerHTML = icon(item.kind || 'package');
+  $('transfer-progress').style.transform = 'scaleX(0)';
+  // Inventory is committed by this preview action; animation only visualizes that change.
   render(); persist();
   if (panelCollapsed) document.querySelector('.activity-dot').hidden = false;
+  const finish = () => {
+    if (transferFeedback?.id !== id) return;
+    transferFeedback.phase = 'done';
+    $('transfer-label').hidden = true;
+    renderDock();
+    receiptTimer = setTimeout(() => { transferFeedback = null; renderDock(); }, 2600);
+  };
+  if (!cabinet || document.hidden) { finish(); return; }
+  cabinet.playTransfer({ direction, item, drawer: item.drawer, onComplete: finish, onFrame: ({ x, y, progress }) => {
+    if (transferFeedback?.id !== id) return;
+    const label = $('transfer-label');
+    label.hidden = state.reducedMotion || motionPreference.matches;
+    const width = $('viewport').clientWidth;
+    const height = $('viewport').clientHeight;
+    const labelWidth = label.offsetWidth || 172;
+    const labelHeight = label.offsetHeight || 80;
+    const left = x + 28 + labelWidth < width - 12 ? x + 28 : x - labelWidth - 28;
+    label.style.left = Math.max(12, Math.min(width - labelWidth - 12, left)) + 'px';
+    label.style.top = Math.max(12, Math.min(height - labelHeight - 12, y - labelHeight / 2)) + 'px';
+    $('transfer-progress').style.transform = `scaleX(${progress})`;
+  } });
 }
 function completeReminder(id) {
   const reminder = activeDevice().reminders.find((entry) => entry.id === id);
@@ -241,10 +312,9 @@ function openItem(id) {
     persist(); closeModal(); render(); toast('已保存到本地预览');
   });
   $('remove-item').addEventListener('click', () => {
-    device.items = device.items.filter((entry) => entry.id !== id);
-    device.activity.unshift({ title: '取出' + item.name, drawer: item.drawer, direction: 'out', time: timeNow() });
-    persist(); closeModal(); render(); toast('已在预览中标记取出');
+    closeModal(); recordTransfer('out', item);
   });
+  syncTransferControls();
 }
 function openReminder(id = '', preset = {}) {
   const device = activeDevice();
@@ -278,9 +348,10 @@ function openAddDevice() {
   });
 }
 function settings() {
-  openModal('设置', `<div class="setting-row"><span>外观</span><div class="theme-switch" aria-label="主题">${[['light', 'sun', '浅色'], ['dark', 'moon', '深色'], ['system', 'monitor', '跟随系统']].map(([value, symbol, label]) => `<button data-theme-choice="${value}" class="${state.theme === value ? 'selected' : ''}" aria-label="${label}" aria-pressed="${state.theme === value}" title="${label}">${icon(symbol)}</button>`).join('')}</div></div><div class="setting-row"><span>物品建议</span><label class="toggle"><input type="checkbox" id="suggestions-toggle" aria-label="物品建议" ${state.suggestions ? 'checked' : ''}><span></span></label></div><div class="setting-row"><span>减少动态效果</span><label class="toggle"><input type="checkbox" id="motion-toggle" aria-label="减少动态效果" ${state.reducedMotion ? 'checked' : ''}><span></span></label></div><div class="demo-settings"><h3>预览控制</h3><div class="demo-actions"><button class="button" data-action="demo-drawer">${icon('play')}抽屉开合</button><button class="button" data-action="demo-insert">${icon('package-plus')}放入物品</button></div></div>`);
+  openModal('设置', `<div class="setting-row"><span>外观</span><div class="theme-switch" aria-label="主题">${[['light', 'sun', '浅色'], ['dark', 'moon', '深色'], ['system', 'monitor', '跟随系统']].map(([value, symbol, label]) => `<button data-theme-choice="${value}" class="${state.theme === value ? 'selected' : ''}" aria-label="${label}" aria-pressed="${state.theme === value}" title="${label}">${icon(symbol)}</button>`).join('')}</div></div><div class="setting-row"><span>物品建议</span><label class="toggle"><input type="checkbox" id="suggestions-toggle" aria-label="物品建议" ${state.suggestions ? 'checked' : ''}><span></span></label></div><div class="setting-row"><span>减少动态效果</span><label class="toggle"><input type="checkbox" id="motion-toggle" aria-label="减少动态效果" ${state.reducedMotion ? 'checked' : ''}><span></span></label></div><div class="demo-settings"><h3>预览控制</h3><div class="demo-actions"><button class="button" data-action="demo-drawer">${icon('play')}抽屉开合</button><button class="button" data-action="demo-insert">${icon('package-plus')}放入物品</button><button class="button" data-action="demo-remove">${icon('package-minus')}取出物品</button></div></div>`);
   $('suggestions-toggle').addEventListener('change', (event) => { state.suggestions = event.target.checked; persist(); renderPanel(); });
-  $('motion-toggle').addEventListener('change', (event) => { state.reducedMotion = event.target.checked; persist(); syncModel(); });
+  $('motion-toggle').addEventListener('change', (event) => { state.reducedMotion = event.target.checked; persist(); syncModel(); syncTransferControls(); });
+  syncTransferControls();
 }
 function commandOpen() {
   $('command-panel').hidden = false;
@@ -330,6 +401,7 @@ document.addEventListener('click', (event) => {
     'close-modal': closeModal,
     'demo-drawer': () => { closeModal(); toggleDrawer(); },
     'demo-insert': () => { closeModal(); demoInsert(); },
+    'demo-remove': () => { closeModal(); demoRemove(); },
   };
   actions[button.dataset.action]?.();
 });
@@ -351,6 +423,8 @@ $('theme-button').addEventListener('click', () => { state.theme = resolvedTheme(
 $('settings-button').addEventListener('click', settings);
 $('add-device').addEventListener('click', openAddDevice);
 $('demo-drawer').addEventListener('click', toggleDrawer);
+$('demo-insert').addEventListener('click', demoInsert);
+$('demo-remove').addEventListener('click', demoRemove);
 $('reset-view').addEventListener('click', () => cabinet?.resetView());
 $('command-button').addEventListener('click', commandOpen);
 $('close-command').addEventListener('click', () => { $('command-panel').hidden = true; $('command-button').focus(); });
@@ -359,6 +433,7 @@ $('close-modal').addEventListener('click', closeModal);
 $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) { const box = $('modal').getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeModal(); } });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('modal').open) $('command-panel').hidden = true; });
 systemDark.addEventListener('change', () => { if (state.theme === 'system') applyTheme(); });
+motionPreference.addEventListener('change', () => { syncModel(); syncTransferControls(); });
 mobile.addEventListener('change', (event) => setPanel(event.matches));
 function updateClock() { $('clock').textContent = new Date().toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + '  ' + timeNow(); }
 updateClock(); setInterval(updateClock, 30000);
@@ -372,4 +447,4 @@ import('./cabinet.js').then(({ createCabinet }) => {
 });
 
 // Read-only diagnostics for browser verification, with no production inventory writes.
-window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), model: cabinet?.snapshot() }) };
+window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), itemCount: activeDevice().items.length, transfer: transferFeedback ? { ...transferFeedback } : null, model: cabinet?.snapshot() }) };

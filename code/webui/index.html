@@ -23,9 +23,15 @@
         <div class="scene-tools">
           <button class="icon-button" id="reset-view" aria-label="恢复默认视角" data-tooltip="恢复视角"><i data-lucide="rotate-ccw"></i></button>
           <button class="icon-button" id="demo-drawer" aria-label="演示当前抽屉开合" data-tooltip="演示抽屉开合"><i data-lucide="play"></i></button>
+          <span class="tool-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="demo-insert" aria-label="演示放入物品" data-tooltip="演示放入物品"><i data-lucide="package-plus"></i></button>
+          <button class="icon-button" id="demo-remove" aria-label="演示取出物品" data-tooltip="演示取出物品"><i data-lucide="package-minus"></i></button>
         </div>
-        <div class="viewport" id="viewport"><div class="model-fallback" id="model-fallback" hidden><i data-lucide="archive"></i><span>3D 视图暂不可用</span></div></div>
-        <div class="scene-state" id="scene-state"><span class="status-dot"></span><span>抽屉已合上</span></div>
+        <div class="viewport" id="viewport">
+          <div class="model-fallback" id="model-fallback" hidden><i data-lucide="archive"></i><span>3D 视图暂不可用</span></div>
+          <div class="transfer-label" id="transfer-label" hidden aria-hidden="true"><span class="transfer-label-symbol" id="transfer-symbol"></span><span class="transfer-label-copy"><small id="transfer-direction"></small><strong id="transfer-name"></strong><span class="transfer-progress"><span id="transfer-progress"></span></span></span></div>
+        </div>
+        <div class="scene-state" id="scene-state" role="status" aria-live="polite"><span class="status-dot"></span><span>抽屉已合上</span></div>
         <div class="drawer-dock" id="drawer-dock" aria-label="选择抽屉"></div>
       </section>
       <aside class="side-panel" id="side-panel" aria-label="设备与物品面板">
