@@ -215,6 +215,11 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 #command-form { display: flex; align-items: center; gap: 12px; }
 #command-input { flex: 1; width: 0; font-size: 16px; border: 0; background: transparent; padding: 8px 0; }
 #command-input:focus { outline: 0; }
+.voice-button { width: 32px; height: 32px; border-radius: 50%; background: var(--surface-soft); color: var(--text); display: grid; place-items: center; flex: 0 0 auto; }
+.voice-button:hover { background: var(--surface-hover); }
+.voice-button.recording { background: #b95c58; color: #fff; }
+.voice-button.busy { opacity: .55; cursor: wait; }
+.voice-button svg { width: 15px; height: 15px; }
 .send-button { width: 32px; height: 32px; border-radius: 50%; background: var(--text); color: var(--surface); display: grid; place-items: center; flex: 0 0 auto; }
 .command-response { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 13px; font-size: 12px; line-height: 1.9; }
 dialog { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 24px; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 64px); box-shadow: var(--shadow); }

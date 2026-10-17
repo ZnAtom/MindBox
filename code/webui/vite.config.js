@@ -26,6 +26,10 @@ const proxy = {
     target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
     changeOrigin: true,
   },
+  '/api/voice': {
+    target: process.env.MIND_BOX_VOICE_URL || 'http://127.0.0.1:8780',
+    changeOrigin: true,
+  },
 };
 
 export default defineConfig({

@@ -23,7 +23,9 @@ npm run dev
 
 从项目根目录运行 `python3 -u code/device/k230/pc_door_bridge.py`，在 VS Code CanMV 运行 `code/device/k230/k230_key_door.py`。IO21 KEY 连续按 1/2/3 次分别切换第一台柜体上/中/下层；松开后约 500 毫秒判定一组。摄像头持续输出 1280x720 图像，电脑持续接收并缓存最近十秒；第一台柜体有抽屉打开时，概览面板显示实时画面。启用电脑麦克风录音时，按 [K230 接入说明](../device/k230/README.md) 安装音频依赖，并使用 `.venv/bin/python` 加 `--record-audio` 启动桥接。
 
-`vite.config.js` 将 `/api/doors`、`/api/camera`、`/api/audio` 和 `/api/vision` 代理到 `127.0.0.1:8765`，页面通过 SSE 接收完整门状态，通过 MJPEG 显示画面，状态栏显示电脑是否正在录音。页面刷新/重连自动同步，硬件在线时禁用对应柜体的演示开关。第二台柜体继续使用预览交互。桥接失联保留最后姿态并显示未连接，不把缓存帧当成实时画面。
+`vite.config.js` 将 `/api/doors`、`/api/camera`、`/api/audio` 和 `/api/vision` 代理到 `127.0.0.1:8765`，将 `/api/voice` 代理到 `127.0.0.1:8780`。页面通过 SSE 接收完整门状态，通过 MJPEG 显示画面，状态栏显示电脑是否正在录音。页面刷新/重连自动同步，硬件在线时禁用对应柜体的演示开关。第二台柜体继续使用预览交互。桥接失联保留最后姿态并显示未连接，不把缓存帧当成实时画面。
+
+底部“问问 mind box”打开语音面板，点击麦克风按钮后由浏览器直接采集电脑麦克风，再把 WebM 音频发送给本地 `voice_api`。服务本地转写、调用远程 AI 查询 `code/backend/var/mind-box.sqlite3`，回答返回浏览器并使用本机语音合成播报。录音权限由浏览器请求；密钥只放在后端 `.env`，不进入前端。
 
 ### 视觉代替门磁
 
