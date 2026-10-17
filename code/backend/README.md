@@ -19,9 +19,25 @@ npm run dev
 
 Windows后端可用 `.venv/Scripts/python.exe -m app.server`，macOS/Linux可用 `.venv/bin/python -m app.server`。服务仅监听127.0.0.1。新环境先安装现有后端依赖。模型配置使用后端本机`.env`的`MIND_BOX_AUTO_API_URL`、`MIND_BOX_AUTO_API_KEY`、`MIND_BOX_AUTO_MODEL`，默认沿用已评测的中转站`gpt-6.1-sol` Responses接口；正式服务只使用显式配置的AUTO密钥，不复用临时比较测试密钥，也不改旧DeepSeek配置。密钥不提交仓库。启动前配置好AUTO密钥；未配置时画面仍保存，识别会保留为失败，配置并重启服务后可从网页重试。
 
-默认桥接8765、后端8787、网页5173；端口被占用时网页会选择下一个。桥接另址时设置`MIND_BOX_BRIDGE_URL`，网页连接其他后端时在启动Vite前设置`MIND_BOX_BACKEND_URL`。后端可用`--database`、`--sessions`、`--bridge`指定路径或桥接地址。只支持一个后端工作进程，同数据库有文件锁保护，不能使用多个Uvicorn workers或reload。
+默认桥接8765、统一后端8787、网页5173；按钮语音、开门语音、文字、库存和提醒均在同一后端。无需另开8780语音服务。桥接另址时设置`MIND_BOX_BRIDGE_URL`，网页连接其他后端时在启动Vite前设置`MIND_BOX_BACKEND_URL`。后端可用`--database`、`--sessions`、`--bridge`指定路径或桥接地址。只支持一个后端工作进程，同数据库有文件锁保护，不能使用多个Uvicorn workers或reload。
 
-后端自动保存开柜前2秒、操作全过程和合柜后2秒的约8fps JPEG及时间轴，识别在另一线程运行。数据库仍为`var/mind-box.sqlite3`，原始帧在`var/mind-box-sessions/`，提交证据在`var/mind-box-assets/`。备份时三者都要保留；现有`db backup`只包含数据库和提交证据，不包含全部会话原帧。
+从项目根目录运行 `./code/mindbox.sh reset` 可停止旧进程并启动三个服务。这个命令不会清空数据库或媒体；`stop` 只停止服务，`status` 查看 8765/8787/5173 端口。脚本默认使用 `code/device/k230/.venv`、`code/backend/.venv` 和系统 `npm`，可用 `MIND_BOX_*_PORT` 或 `NPM_BIN` 覆盖端口和 Node 路径。
+
+本地语音联调可用 `code/backend/.venv/bin/python code/backend/scripts/seed_voice_test_data.py` 写入四件带抽屉位置的测试物品（坚果、牛奶、鱼油、巧克力）。脚本按 `MindBox voice-test-seed` 标记，重复运行只会跳过已有测试记录；它会把当前柜体标为已知测试基线，不代表摄像头实际识别结果。
+
+后端自动保存开柜前2秒、操作全过程和合柜后2秒的约8fps JPEG及时间轴，识别在另一线程运行；取消原180秒截断，单次仍有512MiB归档上限。数据库仍为`var/mind-box.sqlite3`，原始帧在`var/mind-box-sessions/`，提交证据在`var/mind-box-assets/`。备份时三者都要保留；现有`db backup`只包含数据库和提交证据，不包含全部会话原帧。
+
+### 统一语音、文字与提醒
+
+后端环境安装`requirements-voice.txt`，并保留原`requirements-batch.txt`依赖。ASR使用本地small模型；语义理解沿用`MIND_BOX_API_URL/KEY/MODEL`，图像分析仍单独使用`MIND_BOX_AUTO_*`。两套模型配置不能互相替代。
+
+- 按钮录音和文字输入都调用同一个`VoiceAssistant`，查询真实SQLite，支持记录生产日期/到期日期/保质期、创建一次或每日提醒、查询和取消提醒。物品列表搜索也由SQLite执行。
+- 开门录音由桥接保存。后端通过`/api/audio/sessions`拉取完整WAV，按柜体、板端boot和主机触发时刻关联视频会话；复制为该会话的`audio.wav`与`audio.json`，保存主机估算的音画偏移。视频仍只有2秒前导，音频保持开门启动、关门后2秒结束，没有音频前导。
+- 等本次图像分析提交库存后，再转写和理解录音。`transcript.json`、`voice-result.json`和SQLite的`voice_interactions`保留处理状态、原话与结果。待核对/失败的视频不会自动猜测新物品身份；语音继续等待。失败语音可在收纳记录详情重试。
+- 日期写入复用`SpeechService.apply_facts`和既有字段来源校验。没有年份或只有保质期而没有生产日期时不猜到期日；同名多件或已有日期冲突时要求补充信息。不会仅凭讲话新增一件库存。
+- 提醒由独立线程触发，不依赖远程AI是否在线。网页收到通知并显示；浏览器TTS实际结束后回传`played`，显示收到和播报完成分别保存。浏览器阻止自动语音时，可在“提醒与任务”点击播放。每天提醒按`MIND_BOX_TIMEZONE`（默认Asia/Shanghai）续排。
+
+示例：“坚果在哪里？”；“坚果生产日期是2026年10月1日，保质期六个月”；“十分钟后提醒我吃坚果”。开门时说“这个”的前提是本次操作能唯一关联一件物品。缺信息时请重新给出完整交代；通用多轮补答、每周/复杂条件任务、关页后的电脑语音以及K230扬声器播报尚未接入。网页关闭后录音、库存处理和提醒调度继续运行，播报需保持网页打开。
 
 网页第一台柜子读取真实库存，并提供自动记录列表、逐帧核对、重试、忽略、补录和修改；第二台仍是本地演示。合柜后异步识别，耗时可能超过视频时长。完整流程及限制见[自动记录设计](../doc/processing-flow.md#0-自动记录闭环)。
 
@@ -111,10 +127,10 @@ PY
 配置 `.env` 中的 `MIND_BOX_API_URL`、`MIND_BOX_API_KEY` 和 `MIND_BOX_MODEL` 后启动服务：
 
 ```bash
-python -m uvicorn app.voice_api:app --host 127.0.0.1 --port 8780
+python -m app.server --port 8787
 ```
 
-模型权重必须已经位于 `MIND_BOX_ASR_MODELS`（默认 `var/models`），服务只使用本地权重，不在请求时下载。WebUI 的 Vite 开发服务器将 `/api/voice` 转发到 `127.0.0.1:8780`；可用 `MIND_BOX_VOICE_URL` 修改地址。没有 API 密钥或没有初始化数据库时，接口返回明确错误，不会生成猜测答案。
+模型权重必须已经位于 `MIND_BOX_ASR_MODELS`（默认 `var/models`），服务只使用本地权重，不在请求时下载。Vite将`/api/voice`和`/api/reminders`转发到统一后端8787。旧`app.voice_api:app`只保留兼容接口；正常运行使用`app.server`以同时启动录音关联与提醒调度。没有 API 密钥时返回明确错误，已经设置的提醒仍可触发。
 
 备份恢复：将备份目录中的数据库和同名`*-assets`目录放在同一父目录下，继续使用该数据库路径；可直接对备份路径运行`db --database <path> status`检查。原始视频仍为外部引用，重要录像另行备份。数据库备份使用SQLite backup API，兼容WAL，不直接复制正在写入的主文件。
 

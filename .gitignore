@@ -9,5 +9,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 code/backend/var/
+code/var/
 data/processed/
 data/runs/

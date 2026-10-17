@@ -27,7 +27,11 @@ const proxy = {
     changeOrigin: true,
   },
   '/api/voice': {
-    target: process.env.MIND_BOX_VOICE_URL || 'http://127.0.0.1:8780',
+    target: process.env.MIND_BOX_VOICE_URL || process.env.MIND_BOX_BACKEND_URL || 'http://127.0.0.1:8787',
+    changeOrigin: true,
+  },
+  '/api/reminders': {
+    target: process.env.MIND_BOX_BACKEND_URL || 'http://127.0.0.1:8787',
     changeOrigin: true,
   },
 };

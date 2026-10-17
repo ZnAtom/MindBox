@@ -300,6 +300,19 @@ class DoorHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/audio/state":
             self.json_response(200, self.server.audio.snapshot() if self.server.audio else
                                {"enabled": False, "status": "disabled", "session": None, "last": None, "error": None})
+        elif self.path == "/api/audio/sessions":
+            self.json_response(200, {"sessions": self.server.audio.completed_sessions() if self.server.audio else []})
+        elif re.fullmatch(r"/api/audio/sessions/audio-[a-zA-Z0-9]+/audio.wav", self.path):
+            path = self.server.audio.audio_file(self.path.split('/')[4]) if self.server.audio else None
+            if path is None:
+                self.json_response(404, {"error": "Audio not found"})
+            else:
+                payload = path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/wav")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
         elif self.path == "/api/vision/state":
             self.json_response(200, self.server.vision.snapshot() if self.server.vision else
                                {"enabled": False, "status": "disabled"})

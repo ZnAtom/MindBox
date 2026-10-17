@@ -84,6 +84,23 @@ class DoorAudioRecorder:
         with self.lock:
             return dict(self.public)
 
+    def completed_sessions(self):
+        values = []
+        for path in sorted(self.output.glob('audio-*/session.json')):
+            try:
+                value = json.loads(path.read_text())
+                if value.get('complete') and value.get('audio_file') == 'audio.wav':
+                    values.append(value)
+            except (OSError, ValueError):
+                continue
+        return values
+
+    def audio_file(self, identity):
+        if not identity.startswith('audio-') or not identity[6:].isalnum():
+            return None
+        path = self.output / identity / 'audio.wav'
+        return path if path.is_file() and path.resolve().is_relative_to(self.output) else None
+
     def _publish(self, **values):
         with self.lock:
             self.public.update(values)
