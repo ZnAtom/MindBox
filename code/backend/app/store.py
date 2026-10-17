@@ -316,7 +316,7 @@ class Store:
         with self.db.connect() as connection:
             item = item_value(require(connection, 'items', item_id))
             item['observations'] = [dict(r) for r in connection.execute('SELECT o.* FROM observations o '
-                'JOIN item_observations io ON io.observation_id = o.id WHERE io.item_id = ?', (item_id,))]
+                'JOIN item_observations io ON io.observation_id = o.id WHERE io.item_id = ? ORDER BY o.rowid', (item_id,))]
             item['storage_visits'] = [dict(r) for r in connection.execute('SELECT * FROM storage_visits WHERE item_id = ?', (item_id,))]
             return item
 
@@ -461,9 +461,15 @@ class Store:
                 self._visit(connection, item_id, after['presence_status'] == 'present', None, [], None)
             return self._finish_commit(connection, receipt)
 
-    def commit_inventory(self, plan):
+    def commit_inventory(self, plan, *, capture_times=None):
         plan = CommitPlan.model_validate(plan)
         body = plan.model_dump(mode='json')
+        # Only the host capture adapter supplies this clock, never model JSON/API input.
+        capture_times = {key: timestamp(value) for key, value in (capture_times or {}).items()}
+        if capture_times:
+            if not set(capture_times) <= {d.candidate_id for d in plan.decisions}:
+                raise DatabaseError('Capture clock references an unknown decision')
+            body['capture_times'] = capture_times
         with self.db.transaction() as connection:
             operation = require(connection, 'operations', plan.operation_id)
             cabinet_id = operation['cabinet_id']
@@ -549,6 +555,22 @@ class Store:
                     for key in ('first_seen_at', 'last_seen_at', 'stored_at', 'opened_at'):
                         if values.get(key) is not None and key not in decision.patch:
                             raise DatabaseError('No trusted capture clock anchor; absolute observation times require explicit correction')
+                if cid in capture_times:
+                    clock_fields = ['last_seen_at']
+                    if action in ('add', 'return'):
+                        clock_fields.append('stored_at')
+                    if action == 'add':
+                        clock_fields.append('first_seen_at')
+                    for key in clock_fields:
+                        values[key] = capture_times[cid]
+                        meta[key] = {'source': 'system', 'certainty': 'estimated',
+                                     'evidence_refs': decision.evidence_refs if action == 'add' else
+                                         [observations[ref]['id'] for ref in decision.evidence_refs],
+                                     'extractor': 'host_frame_arrival'}
+                    if 'location_id' in decision.patch:
+                        meta['location_id'] = {'source': 'system', 'certainty': 'estimated',
+                            'evidence_refs': [observations[ref]['id'] for ref in decision.evidence_refs],
+                            'extractor': 'visual_drawer_marker'}
                 for key, value in values.items():
                     if key != 'field_meta' and value is not None and key not in meta:
                         meta[key] = {'source': 'vision' if action == 'add' else 'system',
@@ -588,7 +610,8 @@ class Store:
                         (new_id(), receipt['commit_id'], after['id'], event_index,
                          encode({**event, 'committed': True, 'evidence_refs': refs})))
                     if event['kind'] in ('add', 'return', 'remove'):
-                        self._visit(connection, after['id'], event['kind'] != 'remove', plan.operation_id, refs)
+                        self._visit(connection, after['id'], event['kind'] != 'remove', plan.operation_id, refs,
+                                    capture_times.get(cid))
                 self._visit(connection, after['id'], after['presence_status'] != 'removed', plan.operation_id, observation_ids,
                             after.get('stored_at') if action == 'add' else None)
             connection.execute("UPDATE operations SET state = 'committed', committed_at = ? WHERE id = ?", (utcnow(), plan.operation_id))
