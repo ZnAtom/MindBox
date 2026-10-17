@@ -70,6 +70,8 @@ let cabinet;
 let storageWarningShown = false;
 let hardware = { connected: false, state: null };
 let camera = { connected: false, latest: null, cached_frames: 0 };
+let audio = { enabled: false, status: 'disabled' };
+let vision = { enabled: false, status: 'disabled' };
 // The first preview cabinet is the single physical cabinet in this prototype.
 const hardwareDeviceId = 'mb-01';
 
@@ -113,11 +115,18 @@ function selectDrawer(drawer) {
   renderDock();
   syncModel();
 }
+function drawerKnown(device, index) {
+  return device.id !== hardwareDeviceId || !vision.enabled || (hardware.connected && hardware.state?.known?.[index] === true);
+}
+function drawerLabel(device, index) {
+  return !drawerKnown(device, index) ? '待确认' : device.open[index] ? '已打开' : '已合上';
+}
 function renderDock() {
   const device = activeDevice();
-  $('drawer-dock').innerHTML = device.drawerNames.map((name, index) => `<button class="drawer-button ${selectedDrawer === index + 1 ? 'selected' : ''} ${device.open[index] ? 'open' : ''}" data-select-drawer="${index + 1}" aria-pressed="${selectedDrawer === index + 1}" aria-label="选择${ordinals[index]}：${esc(name)}"><span class="drawer-number">0${index + 1}</span><span><strong>${esc(name)}</strong><small>${device.open[index] ? '已打开' : '已合上'} · ${device.items.filter((item) => item.drawer === index + 1).length} 件</small></span></button>`).join('');
+  $('drawer-dock').innerHTML = device.drawerNames.map((name, index) => `<button class="drawer-button ${selectedDrawer === index + 1 ? 'selected' : ''} ${device.open[index] && drawerKnown(device, index) ? 'open' : ''}" data-select-drawer="${index + 1}" aria-pressed="${selectedDrawer === index + 1}" aria-label="选择${ordinals[index]}：${esc(name)}"><span class="drawer-number">0${index + 1}</span><span><strong>${esc(name)}</strong><small>${drawerLabel(device, index)} · ${device.items.filter((item) => item.drawer === index + 1).length} 件</small></span></button>`).join('');
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
-  $('scene-state').innerHTML = `<span class="status-dot ${opened.length ? 'active' : ''}"></span><span>${opened.length ? opened.join('、') + '已打开' : '抽屉已合上'}</span>`;
+  const uncertain = device.open.some((_, index) => !drawerKnown(device, index));
+  $('scene-state').innerHTML = `<span class="status-dot ${opened.length ? 'active' : ''}"></span><span>${uncertain ? '抽屉状态待确认' : opened.length ? opened.join('、') + '已打开' : '抽屉已合上'}</span>`;
 }
 function renderDevices() {
   $('device-list').innerHTML = state.devices.map((device) => `<button class="device-row ${device.id === activeId ? 'selected' : ''}" data-device="${esc(device.id)}" aria-pressed="${device.id === activeId}"><span class="device-symbol">${icon('archive')}</span><span class="device-copy"><strong>${esc(device.name)}</strong><small>3 层抽屉 · ${device.items.length} 件物品</small></span>${device.id === activeId ? icon('check') : ''}</button>`).join('');
@@ -138,16 +147,17 @@ function liveView() {
   const device = activeDevice();
   const opened = device.open.flatMap((open, index) => open ? [ordinals[index]] : []);
   if (!opened.length) return '';
+  const liveTitle = device.open.some((value, index) => value && !drawerKnown(device, index)) ? '抽屉状态待确认' : opened.join('、') + '已打开';
   const latest = device.activity[0];
   const cameraView = camera.connected && hardware.connected && device.id === hardwareDeviceId
     ? '<img class="camera-live" src="/api/camera/mjpeg" alt="K230 实时摄像头画面">'
     : `<div class="camera-empty">${icon('camera-off')}<span>等待摄像头画面</span></div>`;
-  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${opened.join('、')}已打开<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button></div></div>${cameraView}${latest?.demo ? `<div class="live-event">${icon('check-check')}<span>${esc(latest.title)} · 已更新预览</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
+  return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${liveTitle}<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button></div></div>${cameraView}${latest?.demo ? `<div class="live-event">${icon('check-check')}<span>${esc(latest.title)} · 已更新预览</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
 }
 function renderOverview() {
   const device = activeDevice();
   const reminders = device.reminders.filter((reminder) => !reminder.done).slice(0, 2);
-  return `${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">共 ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] ? 'open' : ''}"><span class="status-dot"></span>${device.open[index] ? '已打开' : '已合上'}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1]}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
+  return `${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">共 ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] && drawerKnown(device, index) ? 'open' : ''}"><span class="status-dot"></span>${drawerLabel(device, index)}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1]}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
 }
 function itemRows() {
   const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) && item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -188,27 +198,35 @@ function render(instant = false) {
 }
 function renderHardwareStatus() {
   const linked = activeDevice().id === hardwareDeviceId && hardware.connected;
-  $('hardware-status').textContent = linked ? (hardware.state?.source === 'simulation' ? '模拟设备已连接' : 'K230 已连接') : '设备未连接';
-  $('demo-drawer').disabled = linked;
+  const recording = audio.enabled && (audio.status === 'recording' || audio.status === 'tail');
+  const audioLabel = recording ? ' · 电脑录音中' : audio.enabled && audio.status === 'starting' ? ' · 麦克风启动中' : audio.enabled && audio.status === 'error' ? ' · 录音失败' : '';
+  const visionLabels = { no_camera: '视觉等待画面', tracking: '视觉识别在线', initializing: '视觉确认状态中', opening_pending: '视觉确认开门中', closing_pending: '视觉确认关门中', multiple_markers: '多个抽屉识别码冲突', error: '视觉识别异常' };
+  const label = vision.enabled && activeDevice().id === hardwareDeviceId ? visionLabels[vision.status] || '视觉等待画面' : linked ? hardware.state?.source === 'simulation' ? '模拟设备已连接' : 'K230 已连接' : '设备未连接';
+  $('hardware-status').textContent = label + (linked ? audioLabel : '');
+  $('hardware-status').title = linked && audio.error ? audio.error : '';
+  $('demo-drawer').disabled = linked || (vision.enabled && activeDevice().id === hardwareDeviceId);
 }
 function applyDoorSnapshot(snapshot) {
   if (snapshot?.schema !== 1 || snapshot.cabinet_id !== 'cabinet-01' || typeof snapshot.connected !== 'boolean') return;
   const message = snapshot.state;
   if (message && (!Array.isArray(message.open) || message.open.length !== 3 || message.open.some((value) => typeof value !== 'boolean'))) return;
   const connectionChanged = hardware.connected !== snapshot.connected;
+  const knowledgeChanged = JSON.stringify(hardware.state?.known) !== JSON.stringify(message?.known);
   hardware = snapshot;
   const device = state.devices.find((entry) => entry.id === hardwareDeviceId);
   if (device && message && snapshot.connected) {
     const changed = device.open.some((value, index) => value !== message.open[index]);
     device.open = [...message.open];
-    if (device.id === activeId && changed) {
+    if (device.id === activeId && (changed || knowledgeChanged || connectionChanged)) {
       if (Number.isInteger(message.drawer) && message.drawer >= 1 && message.drawer <= 3) selectedDrawer = message.drawer;
+      else if (message.source === 'vision' && message.known?.every(Boolean) && message.open.filter(Boolean).length === 1) selectedDrawer = message.open.findIndex(Boolean) + 1;
       renderDock();
       syncModel();
     }
-    if (device.id === activeId && activeTab === 'overview' && (changed || connectionChanged)) renderPanel();
-  } else if (connectionChanged && activeDevice().id === hardwareDeviceId && activeTab === 'overview') {
-    renderPanel();
+    if (device.id === activeId && activeTab === 'overview' && (changed || knowledgeChanged || connectionChanged)) renderPanel();
+  } else if (connectionChanged && activeDevice().id === hardwareDeviceId) {
+    renderDock();
+    if (activeTab === 'overview') renderPanel();
   }
   renderHardwareStatus();
 }
@@ -233,7 +251,7 @@ function switchDevice(id) {
 }
 function toggleDrawer() {
   const device = activeDevice();
-  if (device.id === hardwareDeviceId && hardware.connected) return;
+  if (device.id === hardwareDeviceId && (hardware.connected || vision.enabled)) return;
   device.open[selectedDrawer - 1] = !device.open[selectedDrawer - 1];
   if (activeTab !== 'overview') activeTab = 'overview';
   render(); persist();
@@ -321,6 +339,12 @@ function openAddDevice() {
 function settings() {
   openModal('设置', `<div class="setting-row"><span>外观</span><div class="theme-switch" aria-label="主题">${[['light', 'sun', '浅色'], ['dark', 'moon', '深色'], ['system', 'monitor', '跟随系统']].map(([value, symbol, label]) => `<button data-theme-choice="${value}" class="${state.theme === value ? 'selected' : ''}" aria-label="${label}" aria-pressed="${state.theme === value}" title="${label}">${icon(symbol)}</button>`).join('')}</div></div><div class="setting-row"><span>物品建议</span><label class="toggle"><input type="checkbox" id="suggestions-toggle" aria-label="物品建议" ${state.suggestions ? 'checked' : ''}><span></span></label></div><div class="setting-row"><span>减少动态效果</span><label class="toggle"><input type="checkbox" id="motion-toggle" aria-label="减少动态效果" ${state.reducedMotion ? 'checked' : ''}><span></span></label></div><div class="demo-settings"><h3>预览控制</h3><div class="demo-actions"><button class="button" data-action="demo-drawer">${icon('play')}抽屉开合</button><button class="button" data-action="demo-insert">${icon('package-plus')}放入物品</button></div></div>`);
   $('suggestions-toggle').addEventListener('change', (event) => { state.suggestions = event.target.checked; persist(); renderPanel(); });
+  const visionRow = document.createElement('div');
+  visionRow.className = 'setting-row';
+  visionRow.innerHTML = '<span>抽屉视觉识别</span><button class="button" id="vision-setup">' + icon('monitor') + '视觉识别</button>';
+  $('modal-body').prepend(visionRow);
+  $('vision-setup').addEventListener('click', () => { location.href = '/vision.html'; });
+  paintIcons();
   $('motion-toggle').addEventListener('change', (event) => { state.reducedMotion = event.target.checked; persist(); syncModel(); });
 }
 function commandOpen() {
@@ -409,6 +433,7 @@ function disconnectDoorEvents() {
   const wasConnected = hardware.connected;
   hardware = { ...hardware, connected: false };
   renderHardwareStatus();
+  if (wasConnected && activeDevice().id === hardwareDeviceId) renderDock();
   if (wasConnected && activeDevice().id === hardwareDeviceId && activeTab === 'overview') renderPanel();
 }
 function connectDoorEvents() {
@@ -438,6 +463,37 @@ async function pollCamera() {
   }
 }
 pollCamera();
+async function pollAudio() {
+  try {
+    const response = await fetch('/api/audio/state', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error('audio state ' + response.status);
+    const snapshot = await response.json();
+    if (typeof snapshot.enabled !== 'boolean' || typeof snapshot.status !== 'string') throw new Error('Invalid audio state');
+    audio = snapshot;
+  } catch (error) {
+    audio = { enabled: false, status: 'unavailable' };
+  } finally {
+    renderHardwareStatus();
+    setTimeout(pollAudio, 1000);
+  }
+}
+pollAudio();
+async function pollVision() {
+  try {
+    const response = await fetch('/api/vision/state', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error('vision state ' + response.status);
+    const snapshot = await response.json();
+    const changed = vision.enabled !== snapshot.enabled;
+    vision = snapshot;
+    if (changed) { renderDock(); if (activeTab === 'overview') renderPanel(); }
+  } catch {
+    if (vision.enabled) vision = { ...vision, status: 'no_camera' };
+  } finally {
+    renderHardwareStatus();
+    setTimeout(pollVision, 1000);
+  }
+}
+pollVision();
 import('./cabinet.js').then(({ createCabinet }) => {
   cabinet = createCabinet($('viewport'), selectDrawer);
   syncModel(true);
@@ -447,4 +503,4 @@ import('./cabinet.js').then(({ createCabinet }) => {
 });
 
 // Read-only diagnostics for browser verification, with no production inventory writes.
-window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), hardware, camera, model: cabinet?.snapshot() }) };
+window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), hardware, camera, audio, vision, model: cabinet?.snapshot() }) };

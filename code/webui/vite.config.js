@@ -9,9 +9,18 @@ const proxy = {
     target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
     changeOrigin: true,
   },
+  '/api/audio': {
+    target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
+    changeOrigin: true,
+  },
+  '/api/vision': {
+    target: process.env.MIND_BOX_BRIDGE_URL || 'http://127.0.0.1:8765',
+    changeOrigin: true,
+  },
 };
 
 export default defineConfig({
   server: { proxy },
   preview: { proxy },
+  build: { rollupOptions: { input: { main: 'index.html', vision: 'vision.html' } } },
 });
