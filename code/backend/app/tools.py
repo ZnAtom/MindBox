@@ -17,7 +17,10 @@ def tokens(text):
 class ToolBox:
     def __init__(self, evidence=None, catalog_path=None):
         self.evidence = evidence or {}
-        self.catalog = json.loads(Path(catalog_path or os.getenv('MIND_BOX_CATALOG', ROOT / 'knowledge/catalog.json')).read_text(encoding='utf-8-sig'))
+        path = Path(catalog_path or os.getenv('MIND_BOX_CATALOG', ROOT / 'knowledge/catalog.json'))
+        if not path.is_absolute():
+            path = ROOT / path
+        self.catalog = json.loads(path.read_text(encoding='utf-8-sig'))
 
     def search_catalog(self, query, limit=3):
         query_tokens = tokens(query[:400])

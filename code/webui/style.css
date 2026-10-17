@@ -282,3 +282,17 @@ dialog::backdrop { background: #00000038; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 @media (max-width: 400px) { .topbar .preview-label { display: none; } }
 :root.reduce-motion *, :root.reduce-motion *::before, :root.reduce-motion *::after { transition: none !important; animation: none !important; }
+.recording-strip { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 0 16px; font-size: 12px; }
+.recording-strip > span { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.session-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 14px 0; border-bottom: 1px solid var(--line); background: transparent; }
+.session-row .row-copy { flex: 1; min-width: 0; }
+.session-row svg { width: 16px; height: 16px; flex-shrink: 0; }
+.session-detail { min-width: 0; overflow-wrap: anywhere; }
+.session-image { aspect-ratio: 16 / 9; margin: 16px 0; }
+.session-image img { width: 100%; height: 100%; object-fit: contain; }
+.session-timeline { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.session-timeline input { min-width: 0; flex: 1; }
+.session-timeline output { flex: 0 0 70px; text-align: right; font-size: 12px; }
+.session-reasons { font-size: 13px; line-height: 1.7; }
+#hardware-status { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.footer-end { flex-shrink: 0; }

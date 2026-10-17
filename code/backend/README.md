@@ -1,6 +1,39 @@
-# 运行离线视频处理
+# 运行后端与离线视频处理
 
-流程、效果和下一步统一从[开发入口](../README.md)阅读。当前包含离线视频流水线和SQLite数据库服务层/管理命令；没有运行中的HTTP库存服务。首版暂不做重量变化。
+流程、效果和下一步统一从[开发入口](../README.md)阅读。当前包含自动记录HTTP服务、SQLite库存事务和离线视频处理。首版不做重量变化。
+
+## 自动记录服务
+
+设备所在电脑分别启动桥接、后端、网页三个进程。桥接继续使用安装了视觉依赖的环境，后端不直接连接CanMV。实际K230桥接支持Windows命名管道和macOS/Linux本地socket，均依赖CanMV VS Code保持运行。
+
+```sh
+# 在 code/device/k230，使用已装视觉依赖的设备环境
+python pc_door_bridge.py --door-source vision --record-audio
+
+# 在 code/backend，使用后端虚拟环境
+python -m app.server --port 8787
+
+# 在 code/webui
+npm run dev
+```
+
+Windows后端可用 `.venv/Scripts/python.exe -m app.server`，macOS/Linux可用 `.venv/bin/python -m app.server`。服务仅监听127.0.0.1。新环境先安装现有后端依赖。模型配置使用后端本机`.env`的`MIND_BOX_AUTO_API_URL`、`MIND_BOX_AUTO_API_KEY`、`MIND_BOX_AUTO_MODEL`，默认沿用已评测的中转站`gpt-6.1-sol` Responses接口；正式服务只使用显式配置的AUTO密钥，不复用临时比较测试密钥，也不改旧DeepSeek配置。密钥不提交仓库。启动前配置好AUTO密钥；未配置时画面仍保存，识别会保留为失败，配置并重启服务后可从网页重试。
+
+默认桥接8765、后端8787、网页5173；端口被占用时网页会选择下一个。桥接另址时设置`MIND_BOX_BRIDGE_URL`，网页连接其他后端时在启动Vite前设置`MIND_BOX_BACKEND_URL`。后端可用`--database`、`--sessions`、`--bridge`指定路径或桥接地址。只支持一个后端工作进程，同数据库有文件锁保护，不能使用多个Uvicorn workers或reload。
+
+后端自动保存开柜前2秒、操作全过程和合柜后2秒的约8fps JPEG及时间轴，识别在另一线程运行。数据库仍为`var/mind-box.sqlite3`，原始帧在`var/mind-box-sessions/`，提交证据在`var/mind-box-assets/`。备份时三者都要保留；现有`db backup`只包含数据库和提交证据，不包含全部会话原帧。
+
+网页第一台柜子读取真实库存，并提供自动记录列表、逐帧核对、重试、忽略、补录和修改；第二台仍是本地演示。合柜后异步识别，耗时可能超过视频时长。完整流程及限制见[自动记录设计](../doc/processing-flow.md#0-自动记录闭环)。
+
+```sh
+# 完整模型回放测试：只写入一个全新的隔离目录，抽屉编号由测试者指定
+python -m app.auto_replay ../../data/v4.mp4 --drawer 1 --output var/experiments/automatic-test-new
+
+# 仅用于查看隔离测试库；不启动采集或模型工作线程
+python -m app.server --database var/experiments/automatic-test-new/inventory.sqlite3 --port 8788 --no-workers
+```
+
+隔离回放命令可单独使用`MIND_BOX_COMPARE_KEY`，不改变正式服务配置。回放会保留媒体PTS，但不虚构绝对放入时间，也不代替ArUco实柜验收。重放正式会话由后台恢复完成：已完成切片复用，已提交动作按固定ID跳过，不重复入库。
 
 ## 环境
 

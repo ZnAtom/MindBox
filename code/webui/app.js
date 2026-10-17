@@ -1,9 +1,9 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History } from 'lucide';
 import { samplePhotos } from './item-visuals.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History };
 const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
@@ -66,7 +66,7 @@ function fixtures() {
   };
 }
 
-// Inventory and reminders remain preview data; hardware only supplies door states.
+// The physical cabinet is populated only by the inventory service.
 let state = fixtures();
 try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -100,6 +100,14 @@ let audio = { enabled: false, status: 'disabled' };
 let vision = { enabled: false, status: 'disabled' };
 // The first preview cabinet is the single physical cabinet in this prototype.
 const hardwareDeviceId = 'mb-01';
+const physicalDevice = state.devices.find((device) => device.id === hardwareDeviceId);
+if (physicalDevice) Object.assign(physicalDevice, { items: [], activity: [],
+  reminders: physicalDevice.reminders.filter((reminder) => !['fruit', 'daily-oil'].includes(reminder.id)) });
+let inventory = { connected: false, revision: 0, known: false };
+let recording = { counts: {}, sessions: [], capture: {} };
+let inventorySignature = '';
+let recordingSignature = '';
+const isPhysical = () => activeDevice().id === hardwareDeviceId;
 
 function persist() {
   try { localStorage.setItem(storageKey, JSON.stringify(state)); }
@@ -130,11 +138,12 @@ function transferBusy() { return transferFeedback?.phase === 'moving'; }
 function isNewRecord(id) { return Boolean(transferFeedback && id === transferFeedback.id); }
 function syncTransferControls() {
   const busy = transferBusy();
-  const linked = activeDevice().id === hardwareDeviceId && (hardware.connected || vision.enabled);
+  const linked = isPhysical();
   document.querySelectorAll('#demo-drawer, [data-action="demo-drawer"]').forEach((button) => { button.disabled = busy || linked; });
-  document.querySelectorAll('#demo-insert, [data-action="demo-insert"], #remove-item').forEach((button) => { button.disabled = busy; });
+  document.querySelectorAll('#demo-insert, [data-action="demo-insert"]').forEach((button) => { button.disabled = busy || isPhysical(); });
+  document.querySelectorAll('#remove-item, #item-form button[type="submit"]').forEach((button) => { button.disabled = busy || (isPhysical() && !inventory.connected); });
   const hasItems = activeDevice().items.some((item) => item.drawer === selectedDrawer);
-  document.querySelectorAll('#demo-remove, [data-action="demo-remove"]').forEach((button) => { button.disabled = busy || !hasItems; });
+  document.querySelectorAll('#demo-remove, [data-action="demo-remove"]').forEach((button) => { button.disabled = busy || !hasItems || isPhysical(); });
   document.documentElement.classList.toggle('reduce-motion', state.reducedMotion || motionPreference.matches);
 }
 function setPanel(collapsed, rememberFocus = false) {
@@ -153,7 +162,7 @@ function selectDrawer(drawer) {
   syncModel();
 }
 function drawerKnown(device, index) {
-  return device.id !== hardwareDeviceId || !vision.enabled || (hardware.connected && hardware.state?.known?.[index] === true);
+  return device.id !== hardwareDeviceId || (hardware.connected && (!vision.enabled || hardware.state?.known?.[index] === true));
 }
 function drawerLabel(device, index) {
   return !drawerKnown(device, index) ? '待确认' : device.open[index] ? '已打开' : '已合上';
@@ -183,7 +192,7 @@ function reminderRow(reminder) {
 }
 function suggestion() {
   const device = activeDevice();
-  const dated = device.items.filter((item) => item.expiry).sort((a, b) => a.expiry.localeCompare(b.expiry));
+  const dated = device.items.filter((item) => item.expiry && item.storedOn).sort((a, b) => a.expiry.localeCompare(b.expiry));
   const candidate = dated[suggestionIndex % Math.max(dated.length, 1)];
   if (!candidate) return '';
   const days = Math.max(0, Math.floor((Date.now() - new Date(candidate.storedOn + 'T00:00:00').getTime()) / 86400000));
@@ -200,17 +209,30 @@ function liveView() {
     : `<div class="camera-empty">${icon('camera-off')}<span>等待摄像头画面</span></div>`;
   return `<section class="live-view"><div class="live-heading"><span class="status-dot active"></span>${liveTitle}<div class="inline-actions"><button class="icon-button small" data-action="demo-insert" aria-label="演示放入一件物品" data-tooltip="演示放入物品">${icon('package-plus')}</button><button class="icon-button small" data-action="demo-remove" aria-label="演示取出一件物品" data-tooltip="演示取出物品">${icon('package-minus')}</button></div></div>${cameraView}${latest?.demo ? `<div class="live-event ${isNewRecord(latest.id) ? 'new-record' : ''}">${latest.photo ? itemVisual(latest, 'mini') : icon(latest.direction === 'in' ? 'arrow-down-left' : 'arrow-up-right')}<span>${esc(latest.title)} · 已更新预览</span><span class="change-count">${latest.direction === 'in' ? '+1' : '−1'} 件</span></div><p class="live-meta">${esc(latest.time)} · ${ordinals[latest.drawer - 1]}</p>` : ''}</section>`;
 }
+function recordingLabel() {
+  if (!inventory.connected) return '库存服务未连接';
+  if (recording.capture.state === 'capturing') return '正在记录收纳过程';
+  const counts = recording.counts;
+  if (counts.processing || counts.queued) return `正在识别 · ${(counts.processing || 0) + (counts.queued || 0)} 次`;
+  if (counts.failed || counts.pending) return `待核对 · ${(counts.failed || 0) + (counts.pending || 0)} 次`;
+  if (!recording.model_configured) return '识别服务未就绪';
+  return '记录已同步';
+}
+function recordingStrip() {
+  if (!isPhysical()) return '';
+  return `<div class="recording-strip"><span><span class="status-dot ${inventory.connected ? 'active' : ''}"></span>${esc(recordingLabel())}</span><button class="icon-button small" data-action="recording" aria-label="查看自动记录" title="查看自动记录">${icon('history')}</button></div>`;
+}
 function renderOverview() {
   const device = activeDevice();
   const reminders = device.reminders.filter((reminder) => !reminder.done).slice(0, 2);
-  return `${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">共 ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] && drawerKnown(device, index) ? 'open' : ''}"><span class="status-dot"></span>${drawerLabel(device, index)}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row ${isNewRecord(event.id) ? 'new-record' : ''}">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1]}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
+  return `${recordingStrip()}${liveView()}<section class="panel-section"><div class="section-title"><h3>抽屉</h3><span class="muted" style="font-size:10px">${isPhysical() ? '已记录' : '共'} ${device.items.length} 件物品</span></div>${device.drawerNames.map((name, index) => `<button class="drawer-row" data-view-drawer="${index + 1}"><span class="row-index">0${index + 1}</span><span class="row-copy"><strong>${esc(name)}</strong><small>${device.items.filter((item) => item.drawer === index + 1).length} 件物品</small></span><span class="row-state ${device.open[index] && drawerKnown(device, index) ? 'open' : ''}"><span class="status-dot"></span>${drawerLabel(device, index)}</span>${icon('chevron-right')}</button>`).join('')}</section>${state.suggestions ? suggestion() : ''}<section class="panel-section"><div class="section-title"><h3>接下来的提醒</h3><button class="text-action" data-action="view-reminders">全部</button></div>${reminders.length ? reminders.map(reminderRow).join('') : '<p class="field-note">暂无提醒</p>'}</section><section class="panel-section"><div class="section-title"><h3>最近记录</h3></div>${device.activity.length ? device.activity.slice(0, 3).map((event) => `<div class="activity-row ${isNewRecord(event.id) ? 'new-record' : ''}">${icon(event.direction === 'out' ? 'arrow-up-right' : 'arrow-down-left')}<span class="row-copy"><strong>${esc(event.title)}</strong><small>${ordinals[event.drawer - 1] || '位置待确认'}</small></span><span class="activity-time">${esc(event.time)}</span></div>`).join('') : '<p class="field-note">暂无记录</p>'}</section>`;
 }
 function itemRows() {
   const items = activeDevice().items.filter((item) => (!drawerFilter || item.drawer === drawerFilter) && item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}">${itemVisual(item)}<span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1]} · ${monthDay(item.storedOn)} 放入${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : '这里还没有物品'}</div>`;
+  return items.length ? items.map((item) => `<div class="item-row ${transferFeedback?.itemId === item.id ? 'new-record' : ''}"><button class="item-action" data-item="${esc(item.id)}">${itemVisual(item)}<span class="row-copy"><strong>${esc(item.name)}</strong><small>${ordinals[item.drawer - 1] || '位置待确认'} · ${item.storedOn ? monthDay(item.storedOn) + ' 放入' : '放入时间未知'}${item.expiry ? `<br><span class="item-date">日期 ${monthDay(item.expiry)}</span>` : ''}</small></span>${icon('chevron-right')}</button></div>`).join('') : `<div class="empty-state">${icon('search')}${query ? '没有找到相关物品' : isPhysical() ? '暂无已确认记录' : '这里还没有物品'}</div>`;
 }
 function renderItems() {
-  return `<label class="search-field">${icon('search')}<input id="item-search" aria-label="搜索当前设备物品" placeholder="搜索物品" value="${esc(query)}" maxlength="80"></label><div class="filter-tabs" aria-label="按抽屉筛选">${['全部', '一层', '二层', '三层'].map((name, index) => `<button data-filter="${index}" class="${drawerFilter === index ? 'active' : ''}" aria-pressed="${drawerFilter === index}">${name}</button>`).join('')}</div><div id="item-results">${itemRows()}</div>`;
+  return `${recordingStrip()}${isPhysical() ? `<div class="section-title"><h3>已记录物品</h3><button class="icon-button small" data-action="manual-add" aria-label="补录物品" title="补录物品">${icon('plus')}</button></div>` : ''}<label class="search-field">${icon('search')}<input id="item-search" aria-label="搜索当前设备物品" placeholder="搜索物品" value="${esc(query)}" maxlength="80"></label><div class="filter-tabs" aria-label="按抽屉筛选">${['全部', '一层', '二层', '三层'].map((name, index) => `<button data-filter="${index}" class="${drawerFilter === index ? 'active' : ''}" aria-pressed="${drawerFilter === index}">${name}</button>`).join('')}</div><div id="item-results">${itemRows()}</div>`;
 }
 function renderReminders() {
   const reminders = activeDevice().reminders;
@@ -249,8 +271,11 @@ function renderHardwareStatus() {
   const audioLabel = recording ? ' · 电脑录音中' : audio.enabled && audio.status === 'starting' ? ' · 麦克风启动中' : audio.enabled && audio.status === 'error' ? ' · 录音失败' : '';
   const visionLabels = { no_camera: '视觉等待画面', tracking: '视觉识别在线', initializing: '视觉确认状态中', opening_pending: '视觉确认开门中', closing_pending: '视觉确认关门中', multiple_markers: '多个抽屉识别码冲突', error: '视觉识别异常' };
   const label = vision.enabled && activeDevice().id === hardwareDeviceId ? visionLabels[vision.status] || '视觉等待画面' : linked ? hardware.state?.source === 'simulation' ? '模拟设备已连接' : 'K230 已连接' : '设备未连接';
-  $('hardware-status').textContent = label + (linked ? audioLabel : '');
-  $('hardware-status').title = linked && audio.error ? audio.error : '';
+  $('hardware-status').textContent = label + (linked ? audioLabel : '') + (isPhysical() ? ' · ' + recordingLabel() : ' · 预览');
+  $('hardware-status').title = linked && audio.error ? audio.error : $('hardware-status').textContent;
+  document.querySelector('.footer-end').textContent = isPhysical() ? (inventory.connected ? '已同步' : '未同步') : '预览数据';
+  document.querySelector('.bottom-status span').textContent = isPhysical() ? '本机库存' : '本地预览';
+  document.querySelector('.preview-label').innerHTML = '<span class="status-dot"></span>' + (isPhysical() ? '自动记录' : '界面预览');
   syncTransferControls();
 }
 function applyDoorSnapshot(snapshot) {
@@ -303,13 +328,13 @@ function switchDevice(id) {
 function toggleDrawer() {
   if (transferBusy()) return;
   const device = activeDevice();
-  if (device.id === hardwareDeviceId && (hardware.connected || vision.enabled)) return;
+  if (isPhysical()) return;
   device.open[selectedDrawer - 1] = !device.open[selectedDrawer - 1];
   if (activeTab !== 'overview') activeTab = 'overview';
   render(); persist();
 }
 function demoInsert() {
-  if (transferBusy()) return;
+  if (transferBusy() || isPhysical()) return;
   const presets = [['燕麦能量棒', 'cookie'], ['维生素', 'pill'], ['USB-C 充电线', 'cable']];
   const [name, kind] = presets[selectedDrawer - 1];
   const photoSample = selectedDrawer === 1 ? photoFixtures()[demoPhotoIndex++ % 4] : null;
@@ -319,13 +344,13 @@ function demoInsert() {
   recordTransfer('in', item);
 }
 function demoRemove() {
-  if (transferBusy()) return;
+  if (transferBusy() || isPhysical()) return;
   const item = activeDevice().items.find((entry) => entry.drawer === selectedDrawer);
   if (!item) { toast('这个抽屉里暂无可取出的物品'); return; }
   recordTransfer('out', item);
 }
 function recordTransfer(direction, item) {
-  if (transferBusy()) return;
+  if (transferBusy() || isPhysical()) return;
   const device = activeDevice();
   if (direction === 'out' && !device.items.some((entry) => entry.id === item.id)) return;
   const linked = device.id === hardwareDeviceId && (hardware.connected || vision.enabled);
@@ -394,18 +419,145 @@ function openItem(id) {
   const preview = `<div class="item-preview">${itemVisual(item, 'detail')}<div class="item-preview-copy"><h3>${esc(item.name)}</h3><p>${ordinals[item.drawer - 1]} · ${esc(device.drawerNames[item.drawer - 1])}</p><small>${esc(item.photo?.sourceLabel || '暂无物品照片')}</small></div></div>`;
   const capture = item.photo?.originalUrl ? `<details class="capture-details"><summary>查看记录画面${icon('chevron-down')}</summary><div class="capture-image"><img data-capture-photo src="${esc(item.photo.originalUrl)}" alt="${esc(item.name)}的原始测试画面" loading="lazy"><span class="capture-error" hidden>记录画面暂不可用</span></div><p>${esc(item.photo.sourceLabel)}</p></details>` : '';
   openModal('物品详情', `${preview}<form id="item-form" class="form-grid"><label class="field">名称<input name="name" value="${esc(item.name)}" maxlength="48" required></label><div class="field-row"><label class="field">所在抽屉<select name="drawer">${ordinals.map((name, index) => `<option value="${index + 1}" ${item.drawer === index + 1 ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label class="field">到期日期<input name="expiry" type="date" value="${esc(item.expiry)}"></label></div><label class="field">备注<textarea name="note" maxlength="200">${esc(item.note)}</textarea></label>${item.voice ? `<div class="source-quote"><span>随物品记录的原话</span>“${esc(item.voice)}”</div>` : ''}${capture}<div class="modal-actions"><button class="button danger" type="button" id="remove-item">${icon('arrow-up-right')}标记已取出</button>${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
-  $('item-form').addEventListener('submit', (event) => {
+  const editRevision = inventory.revision;
+  $('item-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const name = String(form.get('name')).trim();
     if (!name) { event.currentTarget.elements.name.setCustomValidity('请填写物品名称'); event.currentTarget.reportValidity(); return; }
+    if (isPhysical()) {
+      try {
+        await api('/api/inventory/items/' + item.id, { method: 'PATCH', body: {
+          expected_version: item.version, base_revision: editRevision, idempotency_key: uid(),
+          patch: { name, location_id: 'cabinet-01:drawer-' + Number(form.get('drawer')),
+            expires_on: String(form.get('expiry')) || null, notes: String(form.get('note')).trim() },
+        } });
+        closeModal(); await refreshInventory(); toast('已保存');
+      } catch (error) { toast(error.message); }
+      return;
+    }
     Object.assign(item, { name, drawer: Number(form.get('drawer')), expiry: String(form.get('expiry')), note: String(form.get('note')).trim() });
     persist(); closeModal(); render(); toast('已保存到本地预览');
   });
-  $('remove-item').addEventListener('click', () => {
+  $('remove-item').addEventListener('click', async () => {
+    if (isPhysical()) {
+      try {
+        await api('/api/inventory/items/' + item.id, { method: 'PATCH', body: {
+          expected_version: item.version, base_revision: editRevision, idempotency_key: uid(),
+          patch: { presence_status: 'removed' },
+        } });
+        closeModal(); await refreshInventory(); toast('已标记取出');
+      } catch (error) { toast(error.message); }
+      return;
+    }
     closeModal(); recordTransfer('out', item);
   });
   syncTransferControls();
+}
+async function api(path, options = {}) {
+  const response = await fetch(path, { cache: 'no-store', signal: AbortSignal.timeout(6000), ...options,
+    headers: { 'Content-Type': 'application/json' }, body: options.body ? JSON.stringify(options.body) : undefined });
+  if (!response.ok) {
+    if (response.status === 409) throw new Error('记录已变化或仍需核对，请刷新后重试');
+    throw new Error('操作未完成，请检查连接和填写内容');
+  }
+  return response.json();
+}
+function openManualAdd() {
+  if (!isPhysical() || !inventory.connected) { toast('库存服务未连接'); return; }
+  const revision = inventory.revision;
+  openModal('补录物品', `<form id="manual-item-form" class="form-grid"><label class="field">名称<input name="name" maxlength="120" required></label><label class="field">所在抽屉<select name="drawer">${ordinals.map((name, i) => `<option value="${i + 1}" ${selectedDrawer === i + 1 ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label class="field">备注<textarea name="note" maxlength="1000"></textarea></label><div class="modal-actions">${cancelButton}<button class="button primary" type="submit">保存</button></div></form>`);
+  $('manual-item-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await api('/api/inventory/items', { method: 'POST', body: { base_revision: revision,
+        idempotency_key: uid(), values: { name: String(form.get('name')).trim(),
+          name_kind: 'attribute_description', location_id: 'cabinet-01:drawer-' + form.get('drawer'),
+          notes: String(form.get('note')).trim() } } });
+      closeModal(); await refreshInventory(); toast('已补录');
+    } catch (error) { toast(error.message); }
+  });
+}
+const sessionLabels = { capturing: '记录中', queued: '等待识别', processing: '识别中', committed: '已同步', pending: '待核对', failed: '识别失败', dismissed: '已忽略' };
+const reasonLabels = {
+  capture_process_interrupted: '记录服务中途停止', bridge_or_camera_disconnected: '设备连接中断',
+  camera_epoch_changed: '摄像头重新连接', camera_stalled: '画面停止更新',
+  drawer_identity_uncertain: '抽屉编号不确定', frame_gap: '操作画面有缺失',
+  opening_without_observed_closed_state: '启动时抽屉已打开', insufficient_frames: '有效画面不足',
+  entry_boundary_or_released_placement_missing: '放入路径或松手画面不完整',
+  drawer_to_video_edge_to_exit_not_observed: '没有拍到完整取出路径',
+  physical_identity_uncertain: '物品身份不确定', existing_item_match_required: '需要核对已有物品',
+  return_identity_match_required: '需要核对放回的物品', physical_identity_or_action_uncertain: '物品或动作不确定',
+  inventory_changed_during_analysis: '识别期间库存被修改', conflicting_observations: '前后画面判断有冲突',
+};
+function reasonText(reason) {
+  const value = typeof reason === 'string' ? reason : reason.reason;
+  return reasonLabels[value] || '需要人工核对';
+}
+function openRecording() {
+  openModal('自动记录', `<div class="session-list">${recording.sessions.length ? recording.sessions.map((session) => `<button class="session-row" data-session="${esc(session.id)}"><span class="row-copy"><strong>${esc(sessionLabels[session.state])}</strong><small>${esc(new Date(session.created_at).toLocaleString('zh-CN'))}</small></span>${icon('chevron-right')}</button>`).join('') : '<p class="field-note">暂无操作记录</p>'}</div>`);
+}
+async function openSession(identity) {
+  try {
+    const session = await api('/api/recording/sessions/' + identity);
+    const frames = session.frames;
+    const reviewable = ['pending', 'failed'].includes(session.state);
+    openModal('收纳记录 · ' + sessionLabels[session.state], `<div class="session-detail">${session.detail.reasons?.length ? `<p class="session-reasons">${session.detail.reasons.map((reason) => esc(reasonText(reason))).join('；')}</p>` : ''}${session.detail.message ? `<p>${esc(session.detail.message)}</p>` : ''}${session.objects?.length ? `<p>${session.objects.map((item) => esc(item.name)).join('、')}</p>` : ''}${frames.length ? `<div class="capture-image session-image"><img id="session-frame" src="${esc(frames[0].url)}" alt="收纳记录画面"></div><label class="session-timeline"><input id="session-seek" type="range" min="0" max="${frames.length - 1}" step="1" value="0" aria-label="查看操作画面"><output id="session-time">${(frames[0].media_time_ms / 1000).toFixed(2)} 秒</output></label>` : '<p>没有可用画面</p>'}<div class="modal-actions"><button class="button" data-action="recording">返回</button>${reviewable ? `<button class="button" data-session-action="dismiss" data-session-id="${esc(identity)}">核对后忽略</button><button class="icon-button" data-session-action="retry" data-session-id="${esc(identity)}" aria-label="重试识别" title="重试识别">${icon('refresh-cw')}</button>` : ''}</div></div>`);
+    $('session-seek')?.addEventListener('input', (event) => {
+      const frame = frames[Number(event.target.value)];
+      $('session-frame').src = frame.url;
+      $('session-time').textContent = (frame.media_time_ms / 1000).toFixed(2) + ' 秒';
+    });
+  } catch (error) { toast(error.message); }
+}
+async function changeSession(identity, action) {
+  try {
+    await api(`/api/recording/sessions/${identity}/${action}`, { method: 'POST' });
+    await refreshRecording(); openRecording(); toast(action === 'retry' ? '已加入识别队列' : '已忽略本次后续核对');
+  } catch (error) { toast(error.message); }
+}
+function uiItem(item) {
+  const match = /:drawer-([123])$/.exec(item.location_id || '');
+  return { id: item.id, name: item.name, drawer: match ? Number(match[1]) : 0, kind: 'package',
+    version: item.version, storedOn: item.stored_at ? new Date(item.stored_at).toLocaleDateString('sv-SE') : '',
+    expiry: item.expires_on || '', note: item.notes || item.description || '', photo: item.photo };
+}
+async function refreshInventory() {
+  const value = await api('/api/inventory');
+  const signature = JSON.stringify(value);
+  const changed = signature !== inventorySignature || !inventory.connected;
+  inventory = { connected: true, revision: value.inventory_revision, known: value.inventory_known };
+  if (changed) {
+    inventorySignature = signature;
+    physicalDevice.items = value.items.map(uiItem);
+    const verbs = { add: '记录', remove: '取出', return: '放回', update: '更新', keep: '确认' };
+    physicalDevice.activity = value.activity.map((event) => ({ id: event.id,
+      title: `${verbs[event.action] || '更新'} ${event.item.name}`, drawer: uiItem(event.item).drawer,
+      direction: event.action === 'remove' ? 'out' : 'in',
+      time: new Date(event.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }));
+    if (isPhysical()) render(); else renderDevices();
+  }
+}
+async function refreshRecording() {
+  const value = await api('/api/recording/state');
+  const signature = JSON.stringify(value);
+  recording = value;
+  if (signature !== recordingSignature) {
+    recordingSignature = signature;
+    if (isPhysical() && activeTab === 'overview') renderPanel();
+    const strip = document.querySelector('.recording-strip span');
+    if (strip) strip.innerHTML = `<span class="status-dot ${inventory.connected ? 'active' : ''}"></span>${esc(recordingLabel())}`;
+  }
+}
+async function pollInventory() {
+  try { await refreshInventory(); await refreshRecording(); }
+  catch {
+    if (inventory.connected) {
+      inventory = { ...inventory, connected: false };
+      if (isPhysical()) renderPanel();
+    }
+  } finally { renderHardwareStatus(); setTimeout(pollInventory, 1200); }
 }
 function openReminder(id = '', preset = {}) {
   const device = activeDevice();
@@ -503,6 +655,8 @@ document.addEventListener('click', (event) => {
   if (button.dataset.tab) setTab(button.dataset.tab);
   if (button.dataset.filter != null) { drawerFilter = Number(button.dataset.filter); if (drawerFilter) selectDrawer(drawerFilter); renderPanel(); }
   if (button.dataset.item) openItem(button.dataset.item);
+  if (button.dataset.session) openSession(button.dataset.session);
+  if (button.dataset.sessionAction) changeSession(button.dataset.sessionId, button.dataset.sessionAction);
   if (button.dataset.reminder) openReminder(button.dataset.reminder);
   if (button.dataset.complete) completeReminder(button.dataset.complete);
   if (button.dataset.themeChoice) { state.theme = button.dataset.themeChoice; persist(); applyTheme(); settings(); }
@@ -510,6 +664,8 @@ document.addEventListener('click', (event) => {
     'next-suggestion': () => { suggestionIndex++; renderPanel(); },
     'view-reminders': () => setTab('reminders'),
     'add-reminder': () => openReminder(),
+    'recording': openRecording,
+    'manual-add': openManualAdd,
     'close-modal': closeModal,
     'demo-drawer': () => { closeModal(); toggleDrawer(); },
     'demo-insert': () => { closeModal(); demoInsert(); },
@@ -617,6 +773,7 @@ async function pollVision() {
   }
 }
 pollVision();
+pollInventory();
 import('./cabinet.js').then(({ createCabinet }) => {
   cabinet = createCabinet($('viewport'), selectDrawer);
   syncModel(true);
@@ -626,4 +783,4 @@ import('./cabinet.js').then(({ createCabinet }) => {
 });
 
 // Read-only diagnostics for browser verification, with no production inventory writes.
-window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), itemCount: activeDevice().items.length, transfer: transferFeedback ? { ...transferFeedback } : null, hardware, camera, audio, vision, model: cabinet?.snapshot() }) };
+window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), itemCount: activeDevice().items.length, items: activeDevice().items, inventory, recording, transfer: transferFeedback ? { ...transferFeedback } : null, hardware, camera, audio, vision, model: cabinet?.snapshot() }) };

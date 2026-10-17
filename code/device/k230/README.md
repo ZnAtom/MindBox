@@ -15,11 +15,17 @@ IO21 KEY -> MINDBOX_DOOR JSON -> 同一 USB 连接 -> SSE -> 三层柜门动画
                               -> 电脑麦克风录音 -> WAV + 开关门时间
 
 可选视觉模式：俯拍画面 -> 电脑 ArUco 出现/消失检测 -> 同一门状态/动画/录音链路
+
+自动记录：桥接HTTP缓存与视觉门状态 -> 独立后端持续落盘 -> 合柜后识别 -> Store库存 -> 网页
 ```
 
 摄像头在柜门关闭时也持续工作，电脑也持续接收。第一台柜体任意抽屉打开时，概览面板显示画面；全部关闭后移除网页视频连接，但不停止采集和缓存。第二台柜体仍是界面预览，不映射真实摄像头。
 
+自动记录使用`--door-source vision`，另启动[后端服务](../../backend/README.md#自动记录服务)。桥接继续保持轻量缓存，不在USB或视觉线程调用远端模型。完整时段约8fps原帧由后端归档，网页关闭不影响；本目录独立录音尚未自动关联到库存会话。
+
 这版使用现有 CanMV 扩展的本地共享接口，不修改扩展或固件。它依赖 VS Code 保持运行，暂不是脱离 IDE 的 USB 摄像头驱动。画面帧不通过 SD 卡文件传输。
+
+支持Windows、macOS和Linux：Windows复用扩展的命名管道，macOS/Linux使用本地UNIX socket。两种方式使用同一认证和JPEG/事件协议，不额外打开USB串口。
 
 ## 运行
 
@@ -39,6 +45,14 @@ code/device/k230/.venv/bin/python -m pip install -r code/device/k230/requirement
 ```sh
 code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --record-audio
 ```
+
+上面是macOS/Linux环境命令。Windows在项目根目录使用已安装视觉依赖的Python启动，首次只测画面和抽屉可以不录音：
+
+```powershell
+python -u code/device/k230/pc_door_bridge.py --door-source vision
+```
+
+Windows默认查找`%APPDATA%/Code/User/globalStorage/kendryte747.canmv-vscode`。自定义VS Code用户目录时用`--storage <扩展实际globalStorage目录>`。程序按照VS Code的路径规则匹配命名管道，包括盘符小写；不需要修改CanMV扩展。仅板端/IDE有画面不代表桥接已启动，应检查`http://127.0.0.1:8765/api/camera/state`中`connected=true`，再打开网页。
 
 4. 在 `code/webui` 运行 `npm run dev`，打开 http://127.0.0.1:5173/。
 5. KEY 按 1/2/3 次分别切换上/中/下层。每次按住约 0.1~0.2 秒，同组间隔小于 500 毫秒；最后松开约 500 毫秒后生效。摄像头快照会占用主循环时间，不保证识别极短的轻触。
@@ -133,3 +147,5 @@ python3 -m unittest discover -s code/device/k230 -p 'test_*.py' -v
 2026-10-17 出现/消失版本：完整设备侧回归 62 项和前端构建通过。合成标记经真实 OpenCV 检测器验证了网页第一层开门、多个编号冲突保留姿态、切换第二层、消失延时关门和约 9.95 秒持续缓存；桌面 1440x1000、手机 390x844 无横向溢出，Three.js 截图像素非空，第一层实际模型位置从 0 到 1.3。打印页仅三张编号 1/2/3。更新服务时共享接口报告开发板未连接，尚未验证新安装角度下的实体柜体开合及真实麦克风联动。
 
 随后用户确认当前识别可以正常使用。此确认覆盖现场识别可用性；尚无俯拍识别与真实麦克风的完整联合测试记录或长时间稳定性结果。
+
+2026-10-17 Windows接入：补齐命名管道传输和VS Code路径散列规则，真实CanMV连接两秒收到60张JPEG；启动视觉桥接后约29fps、1280x720，十秒缓存、网页代理和后端采集均在线，实际抽屉状态变化已触发会话落盘。既有62项设备测试及新增4项Windows原生管道测试通过，新增覆盖认证、大帧分片与事件交错、超时取消后恢复、断线EOF和路径规则。本机自动识别密钥尚未配置，已采集会话保留为失败，不能据此宣称实柜模型入库验收通过；本轮未测试麦克风。

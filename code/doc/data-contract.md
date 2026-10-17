@@ -20,7 +20,27 @@
 
 ## 2. 当前数据库
 
-SQLite启用WAL、外键及10秒busy timeout；标准库sqlite3，无ORM。001/002包含20张业务表；003新增10张表，另有schema_migrations保存迁移版本和SHA256。003已用于隔离实验，正式开发库仍只有001/002，未自动升级。已执行迁移不能原地修改。
+SQLite启用WAL、外键及10秒busy timeout；标准库sqlite3，无ORM。001/002包含20张业务表，003新增10张表，004新增automatic_sessions；另有schema_migrations保存迁移版本和SHA256。新HTTP服务启动时执行截至004的迁移，已执行迁移不能原地修改。
+
+### 自动记录会话
+
+| 字段/关联 | 含义 |
+| --- | --- |
+| `automatic_sessions.id` | 开柜会话稳定ID；后续作为Store的capture_id |
+| `cabinet_id` | 外键关联真实柜子，当前cabinet-01 |
+| `state` | capturing、queued、processing、committed、pending、failed、dismissed |
+| `root` | 服务端本机存档目录，不暴露给网页；session.json和原帧是恢复所需数据 |
+| `created_at / updated_at` | 状态时间，UTC |
+| `detail_json` | 切片进度、失败原因或实际事务回执；不保存API密钥 |
+| `session.json.frames` | JPEG SHA256、帧ID、主机单调到达毫秒、UTC到达毫秒；relative media_time_ms来自单调到达时间 |
+| `session.json.doors` | 实际视觉编号、known状态及同一主机时间轴；不采用模型估计层数 |
+| `input_sha256` | 在线JPEG会话为frames/doors/epoch规范化清单的SHA256，不冒充原始MP4哈希 |
+| `inventory-context.json` | 分析起始库存版本、item_id与会话obj-ID绑定、历史外观参考 |
+| `auto-<固定哈希>` | 会话 + obj-ID + 事件ID生成operation_id，保证崩溃后重放不重复提交 |
+
+一个会话可产生多条逐动作operation，但库存仍只存既有items/inventory_commits中。自动记录状态表不创建第二份库存。按程序时间轴得到的capture_times由采集适配器提供，不允许模型输出或HTTP表单直接指定为可信时间。离线回放的测试者指定层数与媒体PTS不等于实际视觉编号或绝对拍摄时刻。
+
+本机API：GET `/api/inventory`、`/api/inventory/evidence/{id}`、`/api/recording/state`、`/api/recording/sessions/{id}`及其帧；POST `/api/inventory/items`补录，PATCH `/api/inventory/items/{id}`校正，POST `/api/recording/sessions/{id}/retry|dismiss`处理记录。写库存必须携带库存revision、已有物版本和幂等key；来自其他网站的Origin不能修改。服务只监听本机，不构成远程登录/鉴权方案。
 
 ```mermaid
 flowchart LR
@@ -162,6 +182,10 @@ before_expiry需要同item明确expires_on、显式到期边界和未来due_at�
 ## 7. 长流程实验分析账本
 
 `model_comparison.long_video`将结果写入指定实验目录的`analysis.sqlite3`，不运行正式库迁移，不调用Store.commit_inventory。它是模型/时序算法的审计中间层，不能拿其objects行数当作真实库存数量。
+
+当前自动记录服务已经有会话级采集、追加帧落盘和会话结束后的异步 worker；下面是录制期间增量窗口仍需补充的目标契约：`capture_sessions(capture_id, device_id, epoch, started_at, status, source_hash, last_capture_seq, last_media_time_ms, audio_clock)`保存采集会话；`capture_frames(capture_id, epoch, seq, device_pts, received_monotonic_ms, file, sha256, quality)`保存追加证据；`analysis_windows(window_id, capture_id, core_start_ms, core_end_ms, context_start_ms, watermark_ms, state_before_hash, request_hash, status, attempt_count)`保存只允许使用已到达帧的窗口；`analysis_updates(window_id, object_id, kind, status, event_id, evidence_refs, reason)`保存候选/确认/pending更新。窗口和事件均要求稳定ID；重复窗口响应只能更新同一记录，不能新增库存。
+
+在线状态不应与生产库存状态混用：`observed`表示模型看到，`candidate`表示规则尚未闭合，`confirmed`表示证据规则通过，`pending`表示等待后续帧或人工补证据，`rejected`表示明确冲突。只有`confirmed`允许调用Store事务；候选可以通过SSE/WebSocket显示。`watermark_ms`是后端已经收到并持久化的最高媒体时间，任何在线模型请求不得引用更晚的帧。捕获断线时关闭当前窗口并标记`incomplete`，恢复后新建epoch，不把两个epoch的帧直接拼接。
 
 | 表 | 内容与约束 |
 | --- | --- |

@@ -5,6 +5,7 @@ import base64
 from collections import deque
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -32,18 +33,28 @@ def default_storage():
         root = Path.home() / "Library/Application Support/Code"
     elif sys.platform.startswith("linux"):
         root = Path.home() / ".config/Code"
+    elif sys.platform == "win32":
+        root = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")) / "Code"
     else:
-        raise RuntimeError("This prototype supports the macOS/Linux VS Code bridge")
+        raise RuntimeError("This prototype supports the Windows/macOS/Linux VS Code bridge")
     return root / "User/globalStorage/kendryte747.canmv-vscode"
+
+
+def bridge_endpoint(storage):
+    identity_path = str(Path(storage))
+    if sys.platform == "win32" and len(identity_path) > 1 and identity_path[1] == ":":
+        # VS Code Uri.fsPath lowercases the drive letter, but preserves the rest.
+        identity_path = identity_path[0].lower() + identity_path[1:]
+    identity = hashlib.sha256(identity_path.encode()).hexdigest()[:20]
+    if sys.platform == "win32":
+        return "\\\\.\\pipe\\canmv-mcp-" + identity
+    return str(Path(tempfile.gettempdir()) / ("canmv-mcp-" + identity + ".sock"))
 
 
 class CanMVBridge:
     def __init__(self, storage, endpoint=None):
         self.storage = Path(storage)
-        identity = hashlib.sha256(str(self.storage).encode()).hexdigest()[:20]
-        self.endpoint = endpoint or str(
-            Path(tempfile.gettempdir()) / ("canmv-mcp-" + identity + ".sock")
-        )
+        self.endpoint = endpoint or bridge_endpoint(self.storage)
         self.channel = None
         self.reader = None
         self.next_id = 0
@@ -53,7 +64,11 @@ class CanMVBridge:
 
     def __enter__(self):
         token = (self.storage / "mcp-bridge-token").read_text().strip()
-        self.channel = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if sys.platform == "win32":
+            from pc_pipe import NamedPipeChannel
+            self.channel = NamedPipeChannel()
+        else:
+            self.channel = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             self.channel.settimeout(15)
             self.channel.connect(self.endpoint)
