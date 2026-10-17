@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 采集 | 本地MP4输入、原件只读 | K230完整音视频上传/鉴权/重连续传待接 |
 | 解码/选帧 | PyAV、PTS、质量/变化筛选；因果入口逐帧解码并仅交付已到达帧 | 音轨仍由原离线入口处理，不等于设备流式服务 |
-| 认物 | 学校`deepseek-pro`图片输入、开放物品框、crop复核 | 底层模型版本未知；不需要先训练固定生活物品类别 |
+| 认物 | 旧入口为学校`deepseek-pro`；v11独立实验用中转站`gpt-6.1-sol`逐张原图 | 底层版本未独立验证；不需要先训练固定生活物品类别 |
 | 动作 | 旧8fps快照/窗口流程；新增12fps因果微批、持久track台账和逐动作事务 | 新入口仍在实测，v7未通过；track关联来自模型，不是已接入SAM/运动跟踪器 |
 | 库存 | SQLite、旧单新增准入；因果入口有序add/remove/return、初始观察登记 | 初始登记不冒充视频放入；实测结果见评测，不以状态机测试宣称v7成功 |
 | 语音 | 独立faster-whisper small/CPU int8、槽位及日期候选、名称归一化和类别兼容关联 | 离线最终稿；缺年份、边界或提醒时刻仍需用户补齐 |
@@ -195,9 +195,19 @@ P0-D质量诊断和P0-F开放命名/回执已接入；M5-lite因果回放及逐�
 
 技术备选：[SAM 2](https://github.com/facebookresearch/sam2)、[Grounding DINO](https://github.com/IDEA-Research/GroundingDINO)、[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)、[MediaPipe Hands](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)均待实测；已用[faster-whisper](https://github.com/SYSTRAN/faster-whisper)、[APScheduler 3.x](https://apscheduler.readthedocs.io/en/3.x/userguide.html)、[dateparser](https://dateparser.readthedocs.io/en/latest/)。本轮不据此宣称跟踪、OCR或实时链路已完成。
 
+### v11：GPT长流程分片实验
+
+新增独立入口`model_comparison.long_video`，不替换旧DeepSeek因果入口。原因是750ms微批容易丢失完整动作语境，而整段长视频会带来上下文和事件混淆；本轮以约6秒核心区间、2秒已到达历史重叠平衡两者。原视频只读，PyAV按PTS保存8fps证据，约4fps逐张原图交给`gpt-6.1-sol`，实际抽样受原视频帧率影响。
+
+每段接收全局物品ID、历史外观截图、最近位置观察和已确认事件。模型识别开放类别物品并给出逐点状态/动作提案；程序推导台账，不再让模型独立填写可能矛盾的净变化。片段内可通过`get_frames(start_ms,end_ms,reason)`补看最多2.5秒的8fps帧，最多两轮，禁止访问该片段截止以后的画面。片段固定时间切分，尚不是训练的动作边界检测器。
+
+物品从视频边缘进入并在抽屉内松手放稳，才接受add/return；取出必须经过视频边缘并完全离开。合屉/遮挡保留原有存在状态；移动需有两个不同抽屉相对位置的放稳证据。未知起始物品仅登记为observed_existing，不冒充拍到了放入。不同抽屉位置分别记录，跨屉搬动视为move，不凭品名新建另一实物。
+
+跨片段未完成动作保留历史点，后续可补齐；重叠事件去重，同帧区域冲突保留并阻止相关事件。每段输出不可变JSON，恢复时检查输入/代码/提示词/台账哈希。独立`analysis.sqlite3`存实物、时序观察、全部提案、符合规则的事件；这是可审计分析账本，**尚未调用Store库存事务，也未接RAG/日程/设备实时流**。报告必须区分模型观察、规则通过、真实生产库存提交，不能用实验库数量冒充业务入库。
+
 ## 8. 合并后的总体流程
 
-实线表示已有程序模块，虚线表示待接能力；已有模块不代表每个视频都通过。左侧两条视觉入口是并列路径，语音/日程目前接在旧离线流程，新因果入口统一编排尚待完成。
+实线表示已有程序模块，虚线表示待接能力；已有模块不代表每个视频都通过。旧离线、新因果微批、v11 GPT分片是三条并列实验路径；语音/日程目前接在旧离线流程，新入口统一编排尚待完成。
 
 ```mermaid
 flowchart TD
@@ -224,6 +234,15 @@ flowchart TD
     CC --> DB
     CC --> CA
     CQ --> CP["该件pending；不撤销其他已确认记录"]
+
+    DEC --> LS["v11实验：8fps证据，6秒核心+2秒历史"]
+    LS --> LG["GPT 6.1-sol：约4fps原图、全局实物台账/历史外观"]
+    LG --> LT["可选get_frames：只补当前已到达区间，最多两轮"]
+    LT --> LG
+    LG --> LP["程序校验取放/跨屉移动、跨段续接与去重"]
+    LP --> LA[("隔离analysis.sqlite3：观察/提案/确认事件")]
+    LA --> LS
+    LA --> REPORT
 
     OBJ --> ENR["同item名称/资料补全，版本与来源校验"]
     ADD --> ENR

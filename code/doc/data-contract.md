@@ -158,3 +158,17 @@ before_expiry需要同item明确expires_on、显式到期边界和未来due_at�
 升级使用下一个可用迁移号，001–003不改；在完整备份副本回填旧ID/幂等键/状态。deliveries旧唯一键不支持多轮多目标，须重建回填，已triggered/played/canceled不能重播。验证外键/完整性/历史数量、旧请求与ACK重放后再迁正式库。
 
 网络投递至少一次，携带稳定delivery_id，客户端持久去重。received/voice played/用户done分开；网页关闭后通知可查询不等于已通知到人。设备主动下发、身份权限、设备回执去重和周期任务HTTP接口均待实施；不能因为FastAPI在依赖中就声称服务已运行。
+
+## 7. 长流程实验分析账本
+
+`model_comparison.long_video`将结果写入指定实验目录的`analysis.sqlite3`，不运行正式库迁移，不调用Store.commit_inventory。它是模型/时序算法的审计中间层，不能拿其objects行数当作真实库存数量。
+
+| 表 | 内容与约束 |
+| --- | --- |
+| session | 视频SHA-256、代码/提示词哈希、处理状态；completed只表示片段处理结束 |
+| objects | 全局obj-ID、名称/类别/外观、元数据历史、最后观察、动作台账位置；含柜外背景物品 |
+| observations | `(object_id,frame_id)`唯一；原始媒体时间、归一化bbox、inside/outside/视频边缘/遮挡、松手/停稳、抽屉阶段 |
+| proposals | 按顺序保存全部动作提案及accepted/pending原因；旧pending后被后续补齐仍保留原记录 |
+| accepted_events | 符合当前程序证据规则的add/remove/return/move、实物ID、时间窗与证据引用；不等于独立人工验证 |
+
+observed_existing建立可见的已有状态，不伪造放入；move只改变位置，不增加件数。物品名称可后续细化，obj-ID不随商品名称变化。视频没有可信拍摄日期时stored_at=null，仅保留媒体毫秒。恢复从不可变片段JSON重建同一分析账本，重叠提案不新增事件；新代码/提示词使用新实验目录。`database-receipt.json`记录实际行数，`long_video_audit`只读检查完整性、解决已补齐的旧提案并生成报告，不自动把分析结果导入生产库。

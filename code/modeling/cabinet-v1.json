@@ -1,0 +1,35 @@
+{
+  "id": "cabinet-v1",
+  "name": "Mind Box · 视频柜体",
+  "tier": "Gen-2.5-Medium",
+  "target_faces": 10000,
+  "seed": 42,
+  "prompt": "A single freestanding three-tier storage cabinet matching these views of the SAME object. Exactly three vertically stacked closed complete sliding drawers with small centered round knobs, rounded rectangular outer frame, flat top tray and one raised carrying rail at the back of the top. Preserve the photographed proportions and structural divisions. Empty cabinet, no stored objects, no people, no room or furniture. Simplified clean hard-surface geometry, opaque panels, no transparency, no labels, no decorations, no textures. Front is the side with three round drawer knobs. All drawers closed.",
+  "split_instruction": "Separate the cabinet into exactly four complete structural groups: one fixed outer frame including the top tray and raised top rail, and three separate complete sliding drawers (upper, middle, lower). Each drawer must contain its own front panel, round knob, bottom and side walls as one group. Preserve assembled positions. Do not detach knobs or subdivide the frame into small pieces. Do not include stored objects.",
+  "images": [
+    {
+      "file": "../../data/3d/360.mp4", "seconds": 1.5, "label": "F", "state": "closed",
+      "crop": [240, 500, 800, 1360],
+      "mask": [[270, 540], [294, 521], [752, 546], [768, 568], [766, 657], [774, 684], [762, 756], [747, 772], [719, 1101], [692, 1290], [672, 1325], [368, 1281], [335, 1255], [286, 795], [264, 735], [267, 679]],
+      "mask_holes": [[[318, 604], [715, 629], [717, 667], [311, 641]]]
+    },
+    {
+      "file": "../../data/3d/360.mp4", "seconds": 4.75, "label": "FR", "state": "closed",
+      "crop": [265, 420, 900, 1505],
+      "mask": [[333, 491], [346, 472], [605, 438], [662, 447], [702, 476], [716, 507], [718, 558], [888, 620], [885, 665], [869, 683], [821, 1200], [803, 1364], [770, 1390], [463, 1487], [426, 1477], [320, 1289], [305, 1208], [288, 1147], [299, 1084], [305, 940], [293, 887], [300, 840], [312, 660], [306, 604], [319, 568], [384, 562], [386, 530], [335, 526]],
+      "mask_holes": [[[417, 525], [652, 499], [659, 550], [443, 540]]]
+    },
+    {
+      "file": "../../data/3d/360.mp4", "seconds": 10.6, "label": "FL", "state": "closed",
+      "crop": [130, 530, 755, 1495],
+      "mask": [[150, 705], [313, 659], [316, 621], [334, 606], [646, 548], [685, 548], [713, 560], [719, 587], [714, 620], [698, 642], [730, 672], [737, 713], [726, 744], [720, 910], [720, 952], [715, 991], [700, 1120], [700, 1170], [693, 1230], [676, 1351], [641, 1444], [594, 1478], [551, 1481], [298, 1360], [271, 1328], [229, 1060], [214, 1014], [206, 956], [181, 796], [155, 751]],
+      "mask_holes": [[[360, 669], [665, 611], [667, 645], [369, 700]]]
+    },
+    {
+      "file": "../../data/3d/360.mp4", "seconds": 6.7, "label": "B", "state": "closed",
+      "crop": [100, 425, 660, 1250],
+      "mask": [[117, 451], [139, 432], [215, 432], [239, 447], [247, 474], [372, 470], [386, 481], [386, 514], [592, 502], [631, 516], [639, 537], [627, 563], [602, 790], [612, 804], [610, 834], [598, 858], [583, 1001], [583, 1029], [569, 1065], [554, 1177], [534, 1210], [501, 1232], [211, 1190], [188, 1168], [162, 1006], [151, 955], [152, 909], [130, 771], [127, 721], [127, 687], [118, 570], [117, 534], [204, 525], [199, 496], [128, 488]],
+      "mask_holes": [[[246, 501], [355, 499], [356, 522], [247, 525]]]
+    }
+  ]
+}
