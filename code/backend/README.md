@@ -61,6 +61,17 @@ python -m venv .venv
 
 ## 模型识别与报告
 
+长流程GPT分片实验（本地`.env`配置`MIND_BOX_COMPARE_KEY`；本轮使用中转站`gpt-6.1-sol`）：
+
+```powershell
+.\.venv\Scripts\python.exe -m model_comparison.long_video ../../data/v11.mp4 --root var/experiments/v11-gpt-sliced-20261017-01 --model gpt-6.1-sol
+.\.venv\Scripts\python.exe -m model_comparison.long_video_audit var/experiments/v11-gpt-sliced-20261017-01 --clips
+```
+
+加`--prepare-only`仅解码切片；`--max-slices 2`限制本轮处理片段数，之后用相同命令去掉该限制可恢复。输入/代码/提示词更改必须使用新实验目录。输出`plan.json`、逐段原始回答/JSON、截图、`report.md`、`result.json`、`database-receipt.json`、API重试日志与`analysis.sqlite3`；该库用于分析记录，不代表已调用正式库存事务。没有人工答案时不计算准确率。
+
+`long_video_audit`不调用模型、不读答案、只读数据库；生成`audit.json`并重建可读`report.md`，区分操作物品与背景、历史pending与当前未解决提案。`--clips`额外导出无声的抽样帧MP4预览，原视频不变。先完成分析或恢复，再运行审计；恢复会重建基础报告。
+
 ```powershell
 .\.venv\Scripts\python.exe -m app.cli probe
 .\.venv\Scripts\python.exe -m app.cli batch ..\..\data --output var/runs/new-run --max-frames 10 --resume

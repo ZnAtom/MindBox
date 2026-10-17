@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f2f2f2">
+    <title>mind box · AI 柜体</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="/"><i data-lucide="box"></i>mind box</a>
+      <span class="topbar-location">柜体模型</span>
+      <div class="topbar-tools"><a class="icon-button" href="/" aria-label="返回储物界面" data-tooltip="返回储物界面"><i data-lucide="arrow-left"></i></a><button class="icon-button" id="theme-button" aria-label="切换外观" data-tooltip="切换外观"><i data-lucide="moon"></i></button></div>
+    </header>
+    <main class="model-workspace">
+      <section class="model-stage" aria-label="AI 生成柜体模型">
+        <div class="scene-heading"><p class="eyebrow">MIND BOX / RODIN</p><h1>我的收纳柜</h1><p class="scene-subtitle" id="model-caption">正在载入</p></div>
+        <div class="model-tools"><button class="icon-button" id="reset-view" aria-label="恢复视角" data-tooltip="恢复视角"><i data-lucide="rotate-ccw"></i></button><button class="icon-button" id="wireframe" aria-label="显示网格" aria-pressed="false" data-tooltip="显示网格"><i data-lucide="scan"></i></button><button class="icon-button" id="panel-toggle" aria-label="收起模型信息" aria-expanded="true" data-tooltip="模型信息"><i data-lucide="panel-right-close"></i></button></div>
+        <div id="model-viewport"></div>
+        <p class="model-status" id="model-status" role="status">正在载入模型</p>
+      </section>
+      <aside class="model-info" id="model-info" aria-label="模型信息">
+        <h2>模型</h2><div class="model-options" id="model-options"></div>
+        <dl class="model-metrics"><div><dt>三角面</dt><dd id="face-count">—</dd></div><div><dt>文件</dt><dd id="file-size">—</dd></div><div><dt>材质</dt><dd>中性灰 · 无纹理</dd></div></dl>
+        <a id="download-model" class="button model-download" download><i data-lucide="download"></i>下载 GLB</a>
+        <section class="parts-section" id="parts-section" hidden><label for="part-select">部件</label><select id="part-select"><option value="all">全部部件</option></select></section>
+        <section class="reference-section"><h2>参考照片</h2><div class="reference-images" id="reference-images"></div></section>
+        <p class="model-note" id="model-note"></p>
+      </aside>
+    </main>
+    <dialog class="reference-dialog" id="reference-dialog" aria-label="参考照片"><button class="icon-button" id="close-reference" aria-label="关闭照片"><i data-lucide="x"></i></button><img id="reference-large" alt="柜体建模参考照片"></dialog>
+    <script type="module" src="/model-preview.js"></script>
+  </body>
+</html>

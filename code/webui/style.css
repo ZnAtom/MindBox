@@ -279,4 +279,5 @@ dialog::backdrop { background: #00000038; }
   .modal-actions { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+@media (max-width: 400px) { .topbar .preview-label { display: none; } }
 :root.reduce-motion *, :root.reduce-motion *::before, :root.reduce-motion *::after { transition: none !important; animation: none !important; }

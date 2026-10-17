@@ -1,0 +1,32 @@
+{
+  "models": [
+    {
+      "id": "cabinet-v1",
+      "file": "/models/cabinet-v1.glb",
+      "bytes": 349924,
+      "name": "AI 柜体 · 第一版",
+      "subtitle": "Rodin · 四视角生成",
+      "caption": "AI 生成 · 9,532 三角面",
+      "status": "外形预览 · 尚未绑定抽屉动画",
+      "note": "来自你的环绕视频。无纹理，统一中性材质。部分边缘有变形，未按实测尺寸校准。",
+      "rotationY": -1.5707963267948966
+    },
+    {
+      "id": "cabinet-v1-split",
+      "file": "/models/cabinet-v1-split.glb",
+      "bytes": 483992,
+      "name": "AI 部件试验",
+      "subtitle": "Bang · 8 个部件",
+      "caption": "AI 拆分 · 10,000 三角面",
+      "status": "8 个部件 · 抽屉结构仍需调整",
+      "note": "自动拆分未得到预期的四组完整结构，部分框架与抽屉混合。暂不能直接用于开合动画。",
+      "rotationY": -1.5707963267948966
+    }
+  ],
+  "references": [
+    { "file": "/models/reference-01-F.webp", "label": "正面" },
+    { "file": "/models/reference-02-FR.webp", "label": "右前方" },
+    { "file": "/models/reference-03-FL.webp", "label": "左前方" },
+    { "file": "/models/reference-04-B.webp", "label": "背面" }
+  ]
+}
