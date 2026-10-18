@@ -15,6 +15,7 @@ import uvicorn
 from .automatic import AutomaticRecorder, inside_path, read_json
 from .capture import BridgeCapture, Sessions
 from .config import ROOT, Settings
+from .connections import create_owner_app
 from .database import Conflict, DatabaseError, NotFound
 from .inventory_schemas import Strict, ItemValues
 from .store import Store
@@ -91,6 +92,7 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
     app.state.capture, app.state.recorder = capture, recorder
     app.state.assistant, app.state.voice = assistant, voice
     mount_routes(app, assistant)
+    app.mount('/api/connections', create_owner_app(store.db))
 
     @app.middleware('http')
     async def local_mutations(request: Request, call_next):

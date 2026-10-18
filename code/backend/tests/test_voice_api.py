@@ -1,7 +1,10 @@
 import json
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+import wave
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,6 +12,38 @@ from app.config import Settings
 from app.database import Database
 from app.store import Store
 from app import voice_api
+
+
+def test_local_transcriber_passes_normalized_samples_without_reopening_a_file(monkeypatch):
+    buffer = BytesIO()
+    with wave.open(buffer, 'wb') as output:
+        output.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+        output.writeframes(np.array([-32768, 0, 32767], dtype='<i2').tobytes())
+
+    class Model:
+        def transcribe(self, audio, **options):
+            np.testing.assert_array_equal(audio, np.array([-1, 0, 32767 / 32768], dtype=np.float32))
+            assert options == {'language': 'zh', 'beam_size': 5, 'vad_filter': True,
+                               'condition_on_previous_text': False}
+            return iter([SimpleNamespace(id=0, start=0, end=.5, text=' test ')]), SimpleNamespace(language='zh')
+
+    transcriber = voice_api.LocalTranscriber()
+    monkeypatch.setattr(transcriber, '_load', lambda: Model())
+    result = transcriber.transcribe(buffer.getvalue())
+    assert result == {'text': 'test', 'language': 'zh',
+                      'segments': [{'id': 0, 'start_ms': 0, 'end_ms': 500, 'text': 'test'}]}
+
+
+@pytest.mark.parametrize('channels,width,rate', [(2, 2, 16000), (1, 1, 16000), (1, 2, 8000)])
+def test_local_transcriber_rejects_unnormalized_audio_before_loading(monkeypatch, channels, width, rate):
+    buffer = BytesIO()
+    with wave.open(buffer, 'wb') as output:
+        output.setparams((channels, width, rate, 0, 'NONE', 'not compressed'))
+        output.writeframes(bytes(channels * width * 10))
+    transcriber = voice_api.LocalTranscriber()
+    monkeypatch.setattr(transcriber, '_load', lambda: pytest.fail('invalid audio must not load the model'))
+    with pytest.raises(voice_api.VoiceError, match='16 kHz'):
+        transcriber.transcribe(buffer.getvalue())
 
 
 class FakeTranscriber:

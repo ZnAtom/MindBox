@@ -19,9 +19,32 @@ npm run dev
 
 Windows后端可用 `.venv/Scripts/python.exe -m app.server`，macOS/Linux可用 `.venv/bin/python -m app.server`。服务仅监听127.0.0.1。新环境先安装现有后端依赖。模型配置使用后端本机`.env`的`MIND_BOX_AUTO_API_URL`、`MIND_BOX_AUTO_API_KEY`、`MIND_BOX_AUTO_MODEL`，默认沿用已评测的中转站`gpt-6.1-sol` Responses接口；正式服务只使用显式配置的AUTO密钥，不复用临时比较测试密钥，也不改旧DeepSeek配置。密钥不提交仓库。启动前配置好AUTO密钥；未配置时画面仍保存，识别会保留为失败，配置并重启服务后可从网页重试。
 
-默认桥接8765、统一后端8787、网页5173；按钮语音、开门语音、文字、库存和提醒均在同一后端。无需另开8780语音服务。桥接另址时设置`MIND_BOX_BRIDGE_URL`，网页连接其他后端时在启动Vite前设置`MIND_BOX_BACKEND_URL`。后端可用`--database`、`--sessions`、`--bridge`指定路径或桥接地址。只支持一个后端工作进程，同数据库有文件锁保护，不能使用多个Uvicorn workers或reload。
+默认桥接8765、统一后端8787、网页5173、只读 Agent API 8788；按钮语音、开门语音、文字、库存和提醒均在同一后端。无需另开8780语音服务。桥接另址时设置`MIND_BOX_BRIDGE_URL`，网页连接其他后端时在启动Vite前设置`MIND_BOX_BACKEND_URL`。后端可用`--database`、`--sessions`、`--bridge`指定路径或桥接地址。只支持一个后端工作进程，同数据库有文件锁保护，不能使用多个Uvicorn workers或reload。
+
+启动脚本还会启动只读 Agent API，默认地址为 `http://127.0.0.1:8788`。网页右上角“设置 → 个人 Agent”可生成本机一次性配对码，然后创建、复制、轮换和撤销连接。完整 Key 只显示一次；Agent 只能读取已授权柜体，默认不能修改库存。OpenAPI 地址为 `http://127.0.0.1:8788/openapi.json`，请求使用 `Authorization: Bearer <mbx...>`。连接管理和查询服务分别使用 `006_agent_access.sql` 的授权/审计表；不把8787网页管理端口直接暴露给 Agent。
 
 从项目根目录运行 `./code/mindbox.sh reset` 可停止旧进程并启动三个服务。这个命令不会清空数据库或媒体；`stop` 只停止服务，`status` 查看 8765/8787/5173 端口。脚本默认使用 `code/device/k230/.venv`、`code/backend/.venv` 和系统 `npm`，可用 `MIND_BOX_*_PORT` 或 `NPM_BIN` 覆盖端口和 Node 路径。
+
+### Windows 一键启动
+
+在项目根目录执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 restart
+```
+
+同时启动摄像头桥接、统一后端和 WebUI，地址为 http://127.0.0.1:5173/。`start` 保留已经正常运行的服务，`restart` / `reset` 替换本项目服务，`stop` 停止，`status` 检查。保留数据库、音视频和模型缓存；发现其他程序占用端口则报错。日志在 `code/backend/var/log/*.stdout.log` 和 `*.stderr.log`。脚本不修改系统执行策略。
+
+首次准备后端基础环境后，补装录音、转写依赖并下载权重：
+
+```powershell
+.\code\backend\.venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 -r .\code\device\k230\requirements-audio.txt
+.\code\backend\.venv\Scripts\python.exe -c "from faster_whisper.utils import download_model; print(download_model('small', cache_dir='code/backend/var/models'))"
+```
+
+桥接与后端共用该虚拟环境，需已安装带 `cv2.aruco` 的 OpenCV、后端及日期调度依赖；WebUI 需已安装 npm 依赖。模型是多语言 Whisper small，缓存约 464 MiB，在 CPU 上以 int8 运行。在线语音直接读取已解码的 16kHz 单声道 PCM，不再重新打开 Windows 锁定的临时文件，也不要求降低主环境的 PyAV 版本。旧离线 ASR 命令仍使用原有独立环境。
+
+VS Code CanMV 仍需连接开发板并运行 `code/device/k230/k230_key_door.py`。自动开门录音使用电脑麦克风；网页麦克风按钮需允许浏览器录音。设备未连接时服务可启动，实际摄像头和抽屉状态须检查桥接接口。图像识别与语音理解分别需要已有的两组 API 配置，本地转写本身不需要远程 API。
 
 本地语音联调可用 `code/backend/.venv/bin/python code/backend/scripts/seed_voice_test_data.py` 写入四件带抽屉位置的测试物品（坚果、牛奶、鱼油、巧克力）。脚本按 `MindBox voice-test-seed` 标记，重复运行只会跳过已有测试记录；它会把当前柜体标为已知测试基线，不代表摄像头实际识别结果。
 

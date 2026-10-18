@@ -18,6 +18,10 @@ v11新增GPT长流程分片实测已完成：36.5秒切7段，`gpt-6.1-sol`得�
 
 在 macOS/Linux 上可以用 `./code/mindbox.sh reset` 一键重置并启动桥接、统一后端和 WebUI。它只替换占用 8765/8787/5173 的服务进程，保留 SQLite、录像、录音、证据和模型缓存；日志在 `code/backend/var/log/`。常用命令是 `start`、`restart`、`stop` 和 `status`。启动后仍需在 VS Code CanMV 窗口执行 `CanMV: Connect Board` 并运行板端脚本；没有开发板时桥接会等待连接，但网页和后端仍可启动。
 
+Windows PowerShell 在项目根目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 restart`。使用 `code/backend/.venv` 同时运行桥接和后端，支持相同的 `start/restart/reset/stop/status`；仅停止命令路径属于本项目的服务，不删除数据。首次依赖和语音模型准备见[后端说明](backend/README.md#windows-一键启动)。
+
+个人 Agent 查询入口已接入：启动脚本会同时启动本机只读 API `http://127.0.0.1:8788`，在 WebUI 的“设置 → 个人 Agent”生成一次性配对码并创建连接；接口说明见 `http://127.0.0.1:8788/openapi.json`。Key 只显示一次，可按柜体和权限授权、轮换或撤销。
+
 [K230接入](device/k230/README.md)保留连续摄像头、十秒滚动窗口与电脑录音。使用ArUco视觉代替门磁：1/2/3号标记对应三层，每次只开一层。后端将缓存接为完整操作时段JPEG存档、异步库存与语音处理，网页第一台柜子使用真实数据。Windows命名管道和macOS共享桥接均已接通；正式自动识别仍需要单独配置`MIND_BOX_AUTO_API_KEY`并做实柜验收。
 
 硬件源图与评估是根目录历史设计快照；产品原始资料、3D调研及独立WebUI预览保留各自职责，软件实际状态以本入口和上述三份文档为准。
