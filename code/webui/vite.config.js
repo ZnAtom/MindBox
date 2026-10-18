@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
 const proxy = {
+  '/api/connections': {
+    target: process.env.MIND_BOX_BACKEND_URL || 'http://127.0.0.1:8787',
+    changeOrigin: true,
+  },
   '/api/inventory': {
     target: process.env.MIND_BOX_BACKEND_URL || 'http://127.0.0.1:8787',
     changeOrigin: true,

@@ -1,0 +1,53 @@
+.connections-modal { width: min(560px, calc(100vw - 32px)); padding: 26px 30px; }
+.connections-modal .modal-heading { margin-bottom: 8px; }
+.connections-nav { display: flex; align-items: center; gap: 12px; margin: 0 -8px 14px; }
+.connections-nav > span { flex: 1; }
+.connections-endpoint { display: grid; grid-template-columns: auto minmax(0, 1fr) 38px; align-items: center; gap: 14px; min-height: 60px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.connections-endpoint > span { color: var(--muted); }
+.connections-endpoint code { font-size: 11px; overflow-wrap: anywhere; }
+.connections-section-head { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; }
+.connections-section-head h3 { font-size: 12px; font-weight: 500; }
+.connections-section-head h3 span { margin-left: 9px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.connection-row { display: flex; align-items: flex-start; gap: 14px; border-bottom: 1px solid var(--line); padding: 20px 0; }
+.connection-icon { width: 24px; flex: 0 0 24px; color: var(--muted); padding-top: 2px; }
+.connection-icon svg { width: 19px; height: 19px; }
+.connection-copy { min-width: 0; flex: 1; }
+.connection-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.connection-title strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.connection-status { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.connection-status.is-active { color: var(--positive); }
+.connection-copy > code { display: block; color: var(--muted); font-size: 10px; margin-top: 9px; overflow-wrap: anywhere; }
+.connection-copy small { display: block; font-size: 10px; line-height: 1.7; margin-top: 5px; color: var(--muted); }
+.connection-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+.connection-row.is-inactive .connection-icon, .connection-row.is-inactive strong { color: var(--muted); }
+.connections-empty { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted); font-size: 12px; }
+.connections-empty svg { width: 26px; height: 26px; stroke-width: 1.3; }
+.connections-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.connections-fields legend { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.connection-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 46px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.connection-option span { overflow-wrap: anywhere; }
+.connection-option input { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--text); }
+.connections-error { font-size: 12px; line-height: 1.8; color: var(--warning); overflow-wrap: anywhere; }
+.connections-pair { padding: 6px 0; }
+.connections-symbol { display: grid; place-items: center; padding: 10px 0 22px; color: var(--muted); }
+.connections-symbol svg { width: 36px; height: 36px; stroke-width: 1.2; }
+.connections-submit { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 8px; }
+.connections-pair-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.connections-secret { display: grid; gap: 19px; }
+.connections-created { display: flex; align-items: center; gap: 9px; padding: 4px 0 10px; min-width: 0; }
+.connections-created svg { width: 18px; height: 18px; color: var(--positive); flex-shrink: 0; }
+.connections-created strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.connections-key { display: flex; align-items: flex-start; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 5px; padding: 9px; }
+.connections-key textarea { resize: none; flex: 1; min-width: 0; border: 0; background: transparent; padding: 5px; font: 12px/1.8 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.connections-revoke > strong { display: block; font-size: 14px; overflow-wrap: anywhere; margin-bottom: 12px; }
+.connections-modal button:disabled { opacity: .45; cursor: default; }
+.settings-link { width: 100%; background: none; text-align: left; color: var(--text); }
+.settings-link svg { width: 16px; height: 16px; color: var(--muted); }
+@media (max-width: 480px) {
+  .connections-modal { padding: 22px 18px; }
+  .connections-modal .icon-button { width: 40px; height: 40px; }
+  .connection-row { gap: 10px; flex-wrap: wrap; }
+  .connection-actions { margin-left: auto; }
+  .connections-endpoint { gap: 8px; font-size: 10px; }
+  .connections-endpoint code { font-size: 10px; }
+}

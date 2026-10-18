@@ -18,6 +18,9 @@ SPAWN_PYTHON="${SPAWN_PYTHON_BIN:-python3}"
 BACKEND_PORT="${MIND_BOX_BACKEND_PORT:-8787}"
 BRIDGE_PORT="${MIND_BOX_BRIDGE_PORT:-8765}"
 WEB_PORT="${MIND_BOX_WEB_PORT:-5173}"
+AGENT_PORT="${MIND_BOX_AGENT_PORT:-8788}"
+export MIND_BOX_AGENT_PORT="$AGENT_PORT"
+export MIND_BOX_OWNER_ORIGINS="${MIND_BOX_OWNER_ORIGINS:-http://127.0.0.1:$WEB_PORT,http://localhost:$WEB_PORT}"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -55,6 +58,7 @@ stop_port() {
 stop_all() {
   stop_port "$WEB_PORT"
   stop_port "$BACKEND_PORT"
+  stop_port "$AGENT_PORT"
   stop_port "$BRIDGE_PORT"
   rm -f "$RUN_DIR"/*.pid
 }
@@ -105,19 +109,22 @@ start_all() {
   start_process bridge "$DEVICE_DIR" "$DEVICE_PY" -u pc_door_bridge.py \
     --port "$BRIDGE_PORT" --door-source vision --record-audio
   start_process backend "$BACKEND_DIR" "$BACKEND_PY" -m app.server --port "$BACKEND_PORT"
+  wait_http backend "http://127.0.0.1:$BACKEND_PORT/api/voice/health"
+  start_process agent "$BACKEND_DIR" "$BACKEND_PY" -m app.agent_server --port "$AGENT_PORT"
   start_process web "$WEB_DIR" "$WEB_NPM" run dev -- --host 127.0.0.1 --port "$WEB_PORT" --strictPort
 
   wait_http bridge "http://127.0.0.1:$BRIDGE_PORT/api/camera/state"
   wait_http backend "http://127.0.0.1:$BACKEND_PORT/api/voice/health"
+  wait_http agent "http://127.0.0.1:$AGENT_PORT/health"
   wait_http web "http://127.0.0.1:$WEB_PORT/"
   say "WebUI: http://127.0.0.1:$WEB_PORT/"
-  say "logs: $LOG_DIR/{bridge,backend,web}.log"
+  say "logs: $LOG_DIR/{bridge,backend,agent,web}.log"
   say "the VS Code CanMV window must remain connected for camera frames"
 }
 
 status() {
   local port
-  for port in "$BRIDGE_PORT" "$BACKEND_PORT" "$WEB_PORT"; do
+  for port in "$BRIDGE_PORT" "$BACKEND_PORT" "$AGENT_PORT" "$WEB_PORT"; do
     if [[ -n "$(port_pids "$port")" ]]; then
       say "port $port: running ($(port_pids "$port" | tr '\n' ' '))"
     else

@@ -7,7 +7,6 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
-import tempfile
 import threading
 import wave
 import re
@@ -136,16 +135,23 @@ class LocalTranscriber:
         return self._model
 
     def transcribe(self, wav_bytes: bytes) -> dict:
+        import numpy as np
+
+        with wave.open(BytesIO(wav_bytes), 'rb') as source:
+            if (source.getnchannels(), source.getsampwidth(), source.getframerate()) != (1, 2, SAMPLE_RATE):
+                raise VoiceError('ASR requires mono 16-bit PCM at 16 kHz')
+            pcm = source.readframes(source.getnframes())
+            if not pcm or len(pcm) != source.getnframes() * 2:
+                raise VoiceError('ASR audio is empty or incomplete')
+        # Pass decoded samples directly: Windows locks open temporary files.
+        audio = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768.0
         with self._lock:
             model = self._load()
-            with tempfile.NamedTemporaryFile(suffix=".wav") as source:
-                source.write(wav_bytes)
-                source.flush()
-                segments, info = model.transcribe(str(source.name), language="zh", beam_size=5,
-                                                  vad_filter=True, condition_on_previous_text=False)
-                values = [{"id": item.id, "start_ms": round(item.start * 1000),
-                           "end_ms": round(item.end * 1000), "text": item.text.strip()}
-                          for item in segments]
+            segments, info = model.transcribe(audio, language="zh", beam_size=5,
+                                              vad_filter=True, condition_on_previous_text=False)
+            values = [{"id": item.id, "start_ms": round(item.start * 1000),
+                       "end_ms": round(item.end * 1000), "text": item.text.strip()}
+                      for item in segments]
         return {"text": "".join(item["text"] for item in values),
                 "segments": values, "language": info.language}
 

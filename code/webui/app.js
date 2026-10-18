@@ -1,9 +1,10 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw } from 'lucide';
 import { samplePhotos } from './item-visuals.js';
+import { openConnections } from './connections.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw };
 const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
@@ -423,6 +424,8 @@ async function completeReminder(id) {
   renderPanel(); persist();
 }
 function openModal(title, html) {
+  $('modal').classList.remove('connections-modal');
+  $('modal').dataset.view = '';
   $('modal-title').textContent = title;
   $('modal-body').innerHTML = html;
   if (!$('modal').open) $('modal').showModal();
@@ -707,6 +710,11 @@ function settings() {
   visionRow.className = 'setting-row';
   visionRow.innerHTML = '<span>抽屉视觉识别</span><button class="button" id="vision-setup">' + icon('monitor') + '视觉识别</button>';
   $('modal-body').prepend(visionRow);
+  const connectionsRow = document.createElement('button');
+  connectionsRow.className = 'setting-row settings-link';
+  connectionsRow.innerHTML = '<span>个人 Agent</span>' + icon('chevron-right');
+  connectionsRow.addEventListener('click', () => openConnections({ openModal, icon, paintIcons, esc, toast, back: settings }));
+  visionRow.after(connectionsRow);
   $('vision-setup').addEventListener('click', () => { location.href = '/vision.html'; });
   paintIcons();
   $('motion-toggle').addEventListener('change', (event) => { state.reducedMotion = event.target.checked; persist(); syncModel(); syncTransferControls(); });
@@ -902,6 +910,13 @@ $('close-command').addEventListener('click', () => { $('command-panel').hidden =
 $('record-command').addEventListener('click', toggleVoiceRecording);
 $('command-form').addEventListener('submit', submitCommand);
 $('close-modal').addEventListener('click', closeModal);
+$('modal').addEventListener('close', () => {
+  if ($('modal').dataset.view === 'connections') {
+    $('modal-body').replaceChildren();
+    $('modal').dataset.view = '';
+    $('modal').classList.remove('connections-modal');
+  }
+});
 $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) { const box = $('modal').getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeModal(); } });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('modal').open) $('command-panel').hidden = true; });
 systemDark.addEventListener('change', () => { if (state.theme === 'system') applyTheme(); });
