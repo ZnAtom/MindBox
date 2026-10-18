@@ -112,11 +112,12 @@ def _decode_audio(payload: bytes) -> bytes:
 class LocalTranscriber:
     """Lazy local faster-whisper worker; the audio never leaves this process."""
 
-    def __init__(self, model=None, models=None):
+    def __init__(self, model=None, models=None, vocabulary=None):
         self.model_name = model or os.getenv("MIND_BOX_ASR_MODEL", "small")
         self.models = Path(models or os.getenv("MIND_BOX_ASR_MODELS", ROOT / "var/models"))
         self._model = None
         self._lock = threading.Lock()
+        self.vocabulary = vocabulary or (lambda: [])
 
     def _load(self):
         if self._model is not None:
@@ -138,11 +139,17 @@ class LocalTranscriber:
     def transcribe(self, wav_bytes: bytes) -> dict:
         with self._lock:
             model = self._load()
+            names = list(dict.fromkeys(self.vocabulary()))[:40]
+            vocabulary = '\u3001'.join(names)[:600]
+            prompt = '\u4ee5\u4e0b\u662f\u666e\u901a\u8bdd\u5bf9\u8bdd\uff0c\u8bf7\u4f7f\u7528\u7b80\u4f53\u4e2d\u6587\u3002'
+            if vocabulary:
+                prompt += '\u67dc\u5185\u7269\u54c1\uff1a' + vocabulary + '\u3002'
             with tempfile.NamedTemporaryFile(suffix=".wav") as source:
                 source.write(wav_bytes)
                 source.flush()
                 segments, info = model.transcribe(str(source.name), language="zh", beam_size=5,
-                                                  vad_filter=True, condition_on_previous_text=False)
+                    vad_filter=True, condition_on_previous_text=False,
+                    initial_prompt=prompt, hotwords=vocabulary or None)
                 values = [{"id": item.id, "start_ms": round(item.start * 1000),
                            "end_ms": round(item.end * 1000), "text": item.text.strip()}
                           for item in segments]
@@ -158,7 +165,8 @@ class VoiceAssistant:
         self.cabinet_id = cabinet_id
         self.store = Store(Database(self.database))
         self.tasks = LiveTasks(self.store, os.getenv('MIND_BOX_TIMEZONE', 'Asia/Shanghai'))
-        self.transcriber = transcriber or LocalTranscriber()
+        self.transcriber = transcriber or LocalTranscriber(vocabulary=lambda: [item['name']
+            for item in self.store.get_inventory_snapshot(self.cabinet_id)['items']])
         self.output = Path(output or self.database.parent / 'voice-api')
         self.client = client or Client(self.settings, self.output)
 
