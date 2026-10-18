@@ -1,0 +1,8 @@
+{"schema":"openai.presentation.layout/v5","unit":"px","slide":{"id":"sl/ng8t0w","index":5,"layout":{"id":"ly/natwj6ls","name":"Blank"},"backgroundColor":"rgba(255,255,255,1)","position":{"left":0,"top":0,"width":1280,"height":720}},
+"elements":[
+{"id":"sh/kvqd8bqh","kind":"textbox","name":"organized-label","position":{"left":114,"top":110,"width":700,"height":56},"text":"善于收纳","style":{"fontSize":33,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/juhwfq9w","kind":"textbox","name":"organized-benefit","position":{"left":110,"top":175,"width":800,"height":108},"text":"更有条理","style":{"fontSize":82,"typeface":"Hiragino Sans GB","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/it8v6lsb","kind":"textbox","name":"unorganized-label","position":{"left":114,"top":369,"width":700,"height":56},"text":"不善收纳","style":{"fontSize":33,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/xszedgrq","kind":"textbox","name":"unorganized-benefit","position":{"left":110,"top":434,"width":800,"height":108},"text":"也能找得到","style":{"fontSize":82,"typeface":"Hiragino Sans GB","color":"#0071E3","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"im/58retgzq","kind":"image","position":{"left":907,"top":145,"width":300,"height":452},"fit":"contain","alt":"cabinet photo left png"}
+]}

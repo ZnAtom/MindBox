@@ -23,7 +23,7 @@ Windows后端可用 `.venv/Scripts/python.exe -m app.server`，macOS/Linux可用
 
 启动脚本还会启动只读 Agent API，默认地址为 `http://127.0.0.1:8788`。网页右上角“设置 → 个人 Agent”可生成本机一次性配对码，然后创建、复制、轮换和撤销连接。完整 Key 只显示一次；Agent 只能读取已授权柜体，默认不能修改库存。OpenAPI 地址为 `http://127.0.0.1:8788/openapi.json`，请求使用 `Authorization: Bearer <mbx...>`。连接管理和查询服务分别使用 `006_agent_access.sql` 的授权/审计表；不把8787网页管理端口直接暴露给 Agent。
 
-从项目根目录运行 `./code/mindbox.sh reset` 可停止旧进程并启动三个服务。这个命令不会清空数据库或媒体；`stop` 只停止服务，`status` 查看 8765/8787/5173 端口。脚本默认使用 `code/device/k230/.venv`、`code/backend/.venv` 和系统 `npm`，可用 `MIND_BOX_*_PORT` 或 `NPM_BIN` 覆盖端口和 Node 路径。
+从项目根目录运行 `./code/mindbox.sh reset` 可停止旧进程并启动桥接、统一后端、WebUI和个人Agent API四个服务。这个命令不会清空数据库或媒体；`stop` 只停止服务，`status` 查看 8765/8787/5173/8788 端口。脚本默认使用 `code/device/k230/.venv`、`code/backend/.venv` 和系统 `npm`，可用 `MIND_BOX_*_PORT` 或 `NPM_BIN` 覆盖端口和 Node 路径。
 
 ### Windows 一键启动
 

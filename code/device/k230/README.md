@@ -1,6 +1,17 @@
 # K230 USB 摄像头与门状态桥接
 
-本目录是 `feat/k230-live-camera-cache` 分支的设备接入源码。原 `/Users/cao/K230/31-Mind-Box/` 为开发板示例工作目录；本功能后续以这里的版本为准。
+本目录是当前设备接入源码，板端脚本和电脑桥接均以这里的版本为准。
+
+| 文件 | 职责 |
+| --- | --- |
+| `k230_key_door.py` | 板端连续摄像头采集、IO21 按键和心跳 |
+| `pc_canmv.py` / `pc_pipe.py` | CanMV 共享连接、JPEG/脚本事件接收和 Windows 命名管道 |
+| `pc_door_bridge.py` | 电脑端入口、滚动缓存、门状态和 HTTP/SSE/MJPEG 接口 |
+| `pc_vision.py` | 抽屉识别码出现/消失检测 |
+| `pc_audio.py` / `pc_wake.py` | 电脑麦克风录音、中文唤醒 |
+| `download_wake_models.py` | 首次下载本地唤醒模型 |
+
+旧的 `pc_usb_pull.py` 文件下载入口、`files_ready` 通知、文件 ACK 和板端录制控制已移除。当前流程在电脑保存图像和音频，无需从 K230 的 SD 卡下载录制文件。
 
 ## 当前链路
 
@@ -8,6 +19,7 @@
 GC2093 持续采集 1280x720 RGB565
   -> Display.VIRT(to_ide=True)
   -> CanMV VS Code 0.9.10 的 USB JPEG 预览帧
+  -> pc_canmv.py 共享连接
   -> pc_door_bridge.py 的内存滚动缓存
   -> HTTP MJPEG -> WebUI 第一台柜体的摄像头区域
 
@@ -21,7 +33,7 @@ IO21 KEY -> MINDBOX_DOOR JSON -> 同一 USB 连接 -> SSE -> 三层柜门动画
 
 摄像头在柜门关闭时也持续工作，电脑也持续接收。第一台柜体任意抽屉打开时，概览面板显示画面；全部关闭后移除网页视频连接，但不停止采集和缓存。第二台柜体仍是界面预览，不映射真实摄像头。
 
-自动记录使用`--door-source vision`，另启动[后端服务](../../backend/README.md#自动记录服务)。桥接继续保持轻量缓存，不在USB或视觉线程调用远端模型。完整时段约8fps原帧由后端归档，网页关闭不影响；本目录独立录音尚未自动关联到库存会话。
+自动记录使用`--door-source vision`，另启动[后端服务](../../backend/README.md#自动记录服务)。桥接继续保持轻量缓存，不在USB或视觉线程调用远端模型。完整时段约8fps原帧由后端归档，网页关闭不影响；开门录音会关联到对应库存会话，在库存提交后交给统一语音服务处理。
 
 这版使用现有 CanMV 扩展的本地共享接口，不修改扩展或固件。它依赖 VS Code 保持运行，暂不是脱离 IDE 的 USB 摄像头驱动。画面帧不通过 SD 卡文件传输。
 
@@ -32,7 +44,7 @@ IO21 KEY -> MINDBOX_DOOR JSON -> 同一 USB 连接 -> SSE -> 三层柜门动画
 电脑端需要 Python 3.9+。仅门状态/视频可用标准库；电脑麦克风录音需要安装 `requirements-audio.txt`。WebUI 依照 `../../webui/README.md` 安装依赖。
 
 1. USB 连接 K230，保留一个启用 CanMV 的 VS Code 窗口，执行 `CanMV: Connect Board`。
-2. 停止旧的录制/按键脚本，运行本目录的 `k230_key_door.py`。摄像头资源不能被两个脚本同时占用。
+2. 在板端运行本目录的 `k230_key_door.py`。摄像头资源不能被两个脚本同时占用。
 3. 在项目根目录首次安装录音依赖：
 
 ```sh
@@ -99,7 +111,7 @@ code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --door-s
 3. 无需关闭位置标定。识别到唯一编号持续约 0.3 秒且至少 3 张检测帧后，网页打开对应层并开始电脑录音。识别到另一个唯一编号并确认后，按单抽屉约定切换开合层，不产生两层同时打开的状态。
 4. 短暂丢码保持打开；连续 2 秒的新画面均未识别到抽屉码后，确认全部关闭并立即停止电脑录音。首次启动或重连也需观察，再确认开门或全部关闭。
 
-`--vision-open-confirm`（默认 0.3）和 `--vision-close-delay`（默认 2）调整上述时间，必须满足 `0 < 开门确认 < 关门延时 <= 30` 秒。每秒最多分析约 10 张最新画面，工作线程不阻塞 USB 接收。旧几何阈值参数、标定 API 和标定文件读取均已移除，已有 `.vision-calibration.json` 不再生效。
+`--vision-open-confirm`（默认 0.3）和 `--vision-close-delay`（默认 2）调整上述时间，必须满足 `0 < 开门确认 < 关门延时 <= 30` 秒。每秒最多分析约 10 张最新画面，工作线程不阻塞 USB 接收。
 
 - 同时看到多个编号时显示冲突，`known` 全部为 `false` 并保留上次姿态；已有录音继续，冲突不新建录音。恢复唯一编号或空画面后，重新计时确认。
 - 同一张冻结画面不会累计确认；相邻检测画面间隔超过 0.5 秒时重置确认计时。超过 1.5 秒无新画面或 USB 中断时，门状态离线，录音按不完整会话收尾，不判成关门。
@@ -107,7 +119,7 @@ code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --door-s
 
 识别页通过 `/api/camera/mjpeg` 持续显示原始视频，与标记识别独立运行；每 200 毫秒读取识别状态并叠加角点，超过 500 毫秒的检测标注自动清除。页脚分别显示相机接收和识别帧率，识别速度不会限制视频刷新。
 
-`/api/vision/state` 返回 `mode=marker_visibility`、每层 `open` / `known`、可见标记的 `corners`、`pending_drawer`、`pending_remaining_ms`、确认时间，以及 `camera_connected`、`camera_epoch`、`camera_fps`、`processing_fps`、`processing_ms`、`observation_age_ms`；后者是检测所用画面距电脑当前时间的毫秒数。`/api/vision/preview.jpg` 保留为带编号的单张预览兼容接口，识别页不轮询它。`/api/vision/markers/1.png` 至 `3.png` 是打印图片。视觉模式仅有一个权威门状态，板端 KEY 心跳不会覆盖它。
+`/api/vision/state` 返回 `mode=marker_visibility`、每层 `open` / `known`、可见标记的 `corners`、`pending_drawer`、`pending_remaining_ms`、确认时间，以及 `camera_connected`、`camera_epoch`、`camera_fps`、`processing_fps`、`processing_ms`、`observation_age_ms`；后者是检测所用画面距电脑当前时间的毫秒数。`/api/vision/markers/1.png` 至 `3.png` 是打印图片。视觉模式仅有一个权威门状态，板端 KEY 心跳不会覆盖它。标注由网页叠加，桥接不再生成无人使用的单张标注 JPEG。
 
 ## 中文语音唤醒（电脑麦克风）
 
@@ -146,7 +158,7 @@ HTTP 只监听 `127.0.0.1:8765`；Vite 将 `/api/doors`、`/api/camera`、`/api/
 
 后端持续读取缓存，并在开门时归档**前2秒＋全过程＋关门后2秒**的约8fps JPEG与时间轴；桥接自身仍保留10秒滚动窗口，不生成MP4。电脑音频在开门时启动、视觉确认关门后立即结束。完整WAV由`/api/audio/sessions`列出，经`/api/audio/sessions/<id>/audio.wav`下载到同一视频会话；统一后端等待库存提交后转写、理解讲话和设置提醒。运行方式见[后端说明](../../backend/README.md#统一语音文字与提醒)。
 
-7 秒没有画面或门心跳即显示离线，不以最后一帧冒充实时画面。USB 预览流只有图像，声音来自电脑麦克风。二者在同一服务中记录电脑单调时钟，但音频起点是打开输入流后的估计值，未做设备级同步校准，尚不生成带音轨的视频。本轮不调用识别模型，不写正式库存；正式处理接口仍以 `../../doc/data-contract.md` 为准。
+7 秒没有画面或门心跳即显示离线，不以最后一帧冒充实时画面。USB 预览流只有图像，声音来自电脑麦克风。二者在同一服务中记录电脑单调时钟，但音频起点是打开输入流后的估计值，未做设备级同步校准，尚不生成带音轨的视频。桥接本身不调用识别模型或写库存，相关处理由独立后端负责；正式处理接口以 `../../doc/data-contract.md` 为准。
 
 ## 验证
 

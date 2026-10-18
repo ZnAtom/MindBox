@@ -1,0 +1,6 @@
+{"schema":"openai.presentation.layout/v5","unit":"px","slide":{"id":"sl/fdjwnk","index":0,"layout":{"id":"ly/natwj6ls","name":"Blank"},"backgroundColor":"rgba(242,242,242,1)","position":{"left":0,"top":0,"width":1280,"height":720}},
+"elements":[
+{"id":"im/x4ratk7u","kind":"image","position":{"left":574,"top":74,"width":676,"height":600},"fit":"contain","alt":"cabinet hero png"},
+{"id":"sh/zq5o3y5w","kind":"textbox","name":"brand","position":{"left":82,"top":236,"width":600,"height":120},"text":"Mind Box","style":{"fontSize":104,"typeface":"Helvetica Neue","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/y5w7ut4b","kind":"textbox","name":"category","position":{"left":88,"top":369,"width":480,"height":56},"text":"物品无感智能收纳","style":{"fontSize":34,"typeface":"Hiragino Sans GB","color":"#151515","alignment":"left"},"geometry":"rect","lineWidth":0}
+]}

@@ -1,0 +1,5 @@
+{"schema":"openai.presentation.layout/v5","unit":"px","slide":{"id":"sl/e8q2s9","index":4,"layout":{"id":"ly/natwj6ls","name":"Blank"},"backgroundColor":"rgba(8,8,8,1)","position":{"left":0,"top":0,"width":1280,"height":720}},
+"elements":[
+{"id":"sh/gzehgvid","kind":"textbox","name":"many-items","position":{"left":115,"top":215,"width":1050,"height":110},"text":"物品越来越多","style":{"fontSize":88,"typeface":"Hiragino Sans GB","color":"#9A9A9A","bold":true,"alignment":"center"},"geometry":"rect","lineWidth":0},
+{"id":"sh/fyl07qhs","kind":"textbox","name":"limited-attention","position":{"left":80,"top":348,"width":1120,"height":110},"text":"注意力只有这么多","style":{"fontSize":88,"typeface":"Hiragino Sans GB","color":"#FFFFFF","bold":true,"alignment":"center"},"geometry":"rect","lineWidth":0}
+]}

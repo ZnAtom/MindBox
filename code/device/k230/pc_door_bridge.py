@@ -12,7 +12,7 @@ import time
 import uuid
 from urllib.parse import urlsplit
 
-from pc_usb_pull import CanMVBridge, default_storage
+from pc_canmv import CanMVBridge, default_storage
 from pc_audio import DoorAudioRecorder, input_devices, sounddevice_module
 
 
@@ -320,9 +320,6 @@ class DoorHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/vision/state":
             self.json_response(200, self.server.vision.snapshot() if self.server.vision else
                                {"enabled": False, "status": "disabled"})
-        elif self.path == "/api/vision/preview.jpg":
-            payload = self.server.vision.preview_jpeg() if self.server.vision else None
-            self.jpeg_response({"data": payload} if payload else None)
         elif re.fullmatch(r"/api/vision/markers/[1-3]\.png", self.path):
             if not self.server.vision:
                 self.json_response(409, {"error": "Start the bridge with --door-source vision"})

@@ -153,7 +153,6 @@ class VisionTests(unittest.TestCase):
         self.vision.tick()
         self.assertFalse(self.state.snapshot()["connected"])
         self.assertEqual(self.vision.snapshot()["status"], "no_camera")
-        self.assertIsNone(self.vision.preview_jpeg())
         self.assertTrue(self.state.snapshot()["state"]["open"][1])
         self.camera.disconnect()
         self.vision.tick()
@@ -247,7 +246,7 @@ class VisionTests(unittest.TestCase):
             new_recorder.step(self.state.snapshot())
             self.assertIsNone(new_recorder.active)
 
-    def test_preview_metadata_separates_camera_and_detection_rates(self):
+    def test_metadata_separates_camera_and_detection_rates(self):
         visible = {1: self.markers[1]}
         self.capture(visible)
         for _ in range(3):
@@ -263,7 +262,6 @@ class VisionTests(unittest.TestCase):
         self.assertGreater(snapshot["processing_ms"], 0)
         self.assertEqual(len(snapshot["markers"][0]["corners"]), 4)
         self.assertAlmostEqual(snapshot["markers"][0]["corners"][0][0], 500, delta=1)
-        self.assertIsNotNone(self.vision.preview_jpeg())
         self.now += .6
         self.assertGreater(self.vision.snapshot()["observation_age_ms"], 500)
         self.camera.disconnect()

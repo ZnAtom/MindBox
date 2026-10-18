@@ -1,0 +1,8 @@
+{"schema":"openai.presentation.layout/v5","unit":"px","slide":{"id":"sl/ffubln","index":1,"layout":{"id":"ly/natwj6ls","name":"Blank"},"backgroundColor":"rgba(255,255,255,1)","position":{"left":0,"top":0,"width":1280,"height":720}},
+"elements":[
+{"id":"sh/18zahgr6","kind":"textbox","name":"remember","position":{"left":78,"top":202,"width":500,"height":84},"text":"取放，全程记得","style":{"fontSize":54,"typeface":"Hiragino Sans GB","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/e5orm1sf","kind":"textbox","name":"find","position":{"left":78,"top":286,"width":500,"height":84},"text":"想找，一问就知道","style":{"fontSize":54,"typeface":"Hiragino Sans GB","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/z6xsf690","kind":"textbox","name":"feature-summary","position":{"left":82,"top":433,"width":420,"height":47},"text":"自动记录取放","style":{"fontSize":28,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/cj69krap","kind":"textbox","name":"voice-reminders","position":{"left":82,"top":480,"width":420,"height":47},"text":"语音查找与定时提醒","style":{"fontSize":28,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"im/sfexgjid","kind":"image","position":{"left":591,"top":140,"width":642,"height":402},"fit":"contain","alt":"interface png"}
+]}

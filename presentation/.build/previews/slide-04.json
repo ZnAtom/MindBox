@@ -1,0 +1,10 @@
+{"schema":"openai.presentation.layout/v5","unit":"px","slide":{"id":"sl/5zino1","index":3,"layout":{"id":"ly/natwj6ls","name":"Blank"},"backgroundColor":"rgba(255,255,255,1)","position":{"left":0,"top":0,"width":1280,"height":720}},
+"elements":[
+{"id":"sh/e1s72dcb","kind":"textbox","name":"agent-title","position":{"left":76,"top":87,"width":1130,"height":88},"text":"让个人 Agent，接上你的生活","style":{"fontSize":60,"typeface":"Hiragino Sans GB","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/14jqxsv2","kind":"textbox","name":"mindbox-side","position":{"left":133,"top":292,"width":450,"height":112},"text":"Mind Box","style":{"fontSize":76,"typeface":"Helvetica Neue","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/03a94nuh","kind":"textbox","name":"connection-symbol","position":{"left":609,"top":303,"width":90,"height":80},"text":"×","style":{"fontSize":60,"typeface":"Helvetica Neue","color":"#A1A1A1","alignment":"center"},"geometry":"rect","lineWidth":0},
+{"id":"sh/n6l8zids","kind":"textbox","name":"agent-side","position":{"left":773,"top":303,"width":410,"height":90},"text":"个人 Agent","style":{"fontSize":56,"typeface":"Hiragino Sans GB","color":"#151515","bold":true,"alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/25sr6dc7","kind":"textbox","name":"mindbox-facts","position":{"left":138,"top":421,"width":460,"height":46},"text":"物品、位置、取放记录","style":{"fontSize":27,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/ps3q1svy","kind":"textbox","name":"agent-role","position":{"left":780,"top":421,"width":390,"height":46},"text":"你的生活管家","style":{"fontSize":27,"typeface":"Hiragino Sans GB","color":"#747474","alignment":"left"},"geometry":"rect","lineWidth":0},
+{"id":"sh/oru98nud","kind":"textbox","name":"authenticated-api","position":{"left":76,"top":607,"width":1100,"height":46},"text":"经认证的 API 接入","style":{"fontSize":28,"typeface":"Hiragino Sans GB","color":"#0071E3","alignment":"center"},"geometry":"rect","lineWidth":0}
+]}

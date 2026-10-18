@@ -15,7 +15,7 @@ from unittest.mock import patch
 import uuid
 
 from pc_pipe import NamedPipeChannel
-from pc_usb_pull import CanMVBridge, bridge_endpoint, default_storage
+from pc_canmv import CanMVBridge, bridge_endpoint, default_storage
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows named pipes")
@@ -98,11 +98,11 @@ class WindowsPipeTests(unittest.TestCase):
             self.assertEqual(self.read_line(handle), {"type": "hello", "token": "test-token"})
             self.write(handle, b'{"type":"hello","ok":true,"snapshot":{"board":{"capabilities":{"readFile":true}}}}\n')
             request = self.read_line(handle)
-            self.assertEqual(request["method"], "scriptRunning")
+            self.assertEqual(request["method"], "startPreview")
             messages = [
                 {"type": "event", "event": {"event": "scriptOutput", "params": {"text": "heartbeat\n"}}},
                 {"type": "frame", "frameId": 42, "dataBase64": base64.b64encode(jpeg).decode()},
-                {"type": "response", "response": {"id": request["id"], "result": {"running": True}}},
+                {"type": "response", "response": {"id": request["id"], "result": {"success": True}}},
             ]
             payload = "".join(json.dumps(message) + "\n" for message in messages).encode()
             self.write(handle, payload[:17])
@@ -116,8 +116,8 @@ class WindowsPipeTests(unittest.TestCase):
                 bridge.require_board()
                 frames = []
                 bridge.frame_handler = frames.append
-                self.assertTrue(bridge.running())
-                self.assertEqual(bridge.next_output(), "heartbeat\n")
+                self.assertTrue(bridge.request("startPreview")["success"])
+                self.assertEqual(bridge.output.popleft(), "heartbeat\n")
                 self.assertEqual(frames[0]["data"], jpeg)
                 self.assertEqual(frames[0]["frame_id"], 42)
 

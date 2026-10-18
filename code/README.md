@@ -1,6 +1,6 @@
 # Mind Box 开发入口
 
-更新：2026-10-17。**大类可识别、单件关联与取放证据成立即可入库；品牌、口味、容量、SKU为可选补全。** 提醒缺年份/时刻不阻塞收纳。首版不做重量变化。
+更新：2026-10-18。**大类可识别、单件关联与取放证据成立即可入库；品牌、口味、容量、SKU为可选补全。** 提醒缺年份/时刻不阻塞收纳。首版不做重量变化。
 
 当前已接通自动记录的代码闭环：PC视觉确认开柜 → 前2秒/全过程/后2秒约8fps存档 → 独立分段模型任务 → Store逐动作事务 → WebUI真实库存与证据图同步。新增统一在线语音：按钮、文字、开门录音共用SQLite查询、语音日期补全、一次/每日提醒、网页显示与TTS播放回执。开门语音等待本次库存提交后再处理。旧离线视频/ASR、商品记忆和取出条件规则保留；复杂条件任务未迁移在线。新语音链路已用隔离库与模拟模型验证，实柜音画联合验收仍待完成；不是所有历史困难视频都已识别正确。启动见[后端说明](backend/README.md)，实现与限制见[自动记录设计](doc/processing-flow.md#0-自动记录闭环)。
 
@@ -16,7 +16,7 @@ v11新增GPT长流程分片实测已完成：36.5秒切7段，`gpt-6.1-sol`得�
 
 [后端运行说明](backend/README.md)只保留环境和命令；[数据规范](datasets/README.md)只保留素材/标注要求。独立提醒设计已合并删除，旧阶段计划与重复结果不再散落多份文档。原始日志/回答/视频保留在原目录。
 
-在 macOS/Linux 上可以用 `./code/mindbox.sh reset` 一键重置并启动桥接、统一后端和 WebUI。它只替换占用 8765/8787/5173 的服务进程，保留 SQLite、录像、录音、证据和模型缓存；日志在 `code/backend/var/log/`。常用命令是 `start`、`restart`、`stop` 和 `status`。启动后仍需在 VS Code CanMV 窗口执行 `CanMV: Connect Board` 并运行板端脚本；没有开发板时桥接会等待连接，但网页和后端仍可启动。
+在 macOS/Linux 上可以用 `./code/mindbox.sh reset` 一键重置并启动桥接、统一后端、WebUI和个人Agent API四个服务。它只替换占用 8765/8787/5173/8788 的服务进程，保留 SQLite、录像、录音、证据和模型缓存；日志在 `code/backend/var/log/`。常用命令是 `start`、`restart`、`stop` 和 `status`。启动后仍需在 VS Code CanMV 窗口执行 `CanMV: Connect Board` 并运行板端脚本；没有开发板时桥接会等待连接，但网页和后端仍可启动。
 
 Windows PowerShell 在项目根目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 restart`。使用 `code/backend/.venv` 同时运行桥接和后端，支持相同的 `start/restart/reset/stop/status`；仅停止命令路径属于本项目的服务，不删除数据。首次依赖和语音模型准备见[后端说明](backend/README.md#windows-一键启动)。
 
@@ -25,6 +25,22 @@ Windows PowerShell 在项目根目录运行 `powershell -NoProfile -ExecutionPol
 [K230接入](device/k230/README.md)保留连续摄像头、十秒滚动窗口与电脑录音。使用ArUco视觉代替门磁：1/2/3号标记对应三层，每次只开一层。后端将缓存接为完整操作时段JPEG存档、异步库存与语音处理，网页第一台柜子使用真实数据。Windows命名管道和macOS共享桥接均已接通；正式自动识别仍需要单独配置`MIND_BOX_AUTO_API_KEY`并做实柜验收。
 
 硬件源图与评估是根目录历史设计快照；产品原始资料、3D调研及独立WebUI预览保留各自职责，软件实际状态以本入口和上述三份文档为准。
+
+## 代码入口
+
+| 目录或入口 | 用途 |
+| --- | --- |
+| `mindbox.sh` / `mindbox.ps1` | 启停本机四个服务 |
+| `device/k230/k230_key_door.py` | 在 K230 上运行的连续摄像头与按键脚本 |
+| `device/k230/pc_door_bridge.py` | 电脑端设备桥接，复用 `pc_canmv.py` 的实时 USB 连接 |
+| `backend/app/server.py` | 统一库存、视频会话、语音和提醒服务 |
+| `backend/app/agent_server.py` | 个人 Agent 只读 API |
+| `webui/index.html` / `vision.html` / `models.html` | 主界面、视觉检测与打印标记、模型预览 |
+| `backend/model_comparison/` | 分片识别共用代码及评测工具，正式后端仍依赖它 |
+| `backend/app/cli.py` / `backend/scripts/` | 离线回放、数据库维护和回归工具 |
+| `modeling/` | 独立的柜体模型生成与检查工具 |
+
+当前设备通讯使用 CanMV 实时 JPEG 和脚本事件，电脑持续缓存并按会话保存；旧 SD 卡文件下载/ACK 流程已删除。数据库、媒体、模型权重等运行数据不属于源码清理范围。
 
 ## 旧入口检查结果
 

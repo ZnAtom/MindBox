@@ -56,7 +56,6 @@ class VisionDoors:
         self.last_published = None
         self.published_at = float("-inf")
         self.boot, self.seq = uuid.uuid4().hex[:16], 0
-        self.preview = None
         self.observed_at = None
         self.processed_at = deque(maxlen=60)
         self.public = {"enabled": True, "mode": "marker_visibility", "single_drawer": True, "status": "no_camera",
@@ -79,10 +78,6 @@ class VisionDoors:
                           if len(self.processed_at) > 1 and self.processed_at[-1] > self.processed_at[0] else 0)
             return result
 
-    def preview_jpeg(self):
-        with self.lock:
-            return self.preview
-
     def start(self):
         self.thread = threading.Thread(target=self.run, name="drawer-vision", daemon=True)
         self.thread.start()
@@ -102,7 +97,6 @@ class VisionDoors:
             except Exception as error:
                 with self.lock:
                     self._unknown()
-                    self.preview = None
                     self.observed_at = None
                     self.public.update(status="error", error=str(error))
                 self.state.disconnect()
@@ -115,7 +109,6 @@ class VisionDoors:
         if frame is None or now - frame["received_at"] > MAX_FRAME_AGE:
             with self.lock:
                 self._unknown()
-                self.preview = None
                 self.observed_at = None
                 self.public.update(status="no_camera", markers=[])
             self.state.disconnect()
@@ -147,14 +140,6 @@ class VisionDoors:
             self.state.disconnect()
             return
         self.observe(observations, (width, height), frame["generation"], frame["received_at"])
-        for marker_id, corners in observations.items():
-            self.cv2.polylines(image, [corners.astype(self.np.int32)], True, (60, 180, 50), 2)
-            x, y = corners[0].astype(int)
-            self.cv2.putText(image, str(marker_id), (x, max(20, y - 7)), self.cv2.FONT_HERSHEY_SIMPLEX, .7, (30, 110, 20), 2)
-        success, encoded = self.cv2.imencode(".jpg", image, [self.cv2.IMWRITE_JPEG_QUALITY, 80])
-        if success:
-            with self.lock:
-                self.preview = encoded.tobytes()
         with self.lock:
             self.processed_at.append(self.clock())
             self.public["processing_ms"] = round((time.perf_counter() - started_at) * 1000, 1)
