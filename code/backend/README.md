@@ -32,7 +32,7 @@ Windows后端可用 `.venv/Scripts/python.exe -m app.server`，macOS/Linux可用
 后端环境安装`requirements-voice.txt`，并保留原`requirements-batch.txt`依赖。ASR使用本地small模型；语义理解沿用`MIND_BOX_API_URL/KEY/MODEL`，图像分析仍单独使用`MIND_BOX_AUTO_*`。两套模型配置不能互相替代。
 
 - 按钮录音和文字输入都调用同一个`VoiceAssistant`，查询真实SQLite，支持记录生产日期/到期日期/保质期、创建一次或每日提醒、查询和取消提醒。物品列表搜索也由SQLite执行。
-- 开门录音由桥接保存。后端通过`/api/audio/sessions`拉取完整WAV，按柜体、板端boot和主机触发时刻关联视频会话；复制为该会话的`audio.wav`与`audio.json`，保存主机估算的音画偏移。视频仍只有2秒前导，音频保持开门启动、关门后2秒结束，没有音频前导。
+- 开门录音由桥接保存。后端通过`/api/audio/sessions`拉取完整WAV，按柜体、板端boot和主机触发时刻关联视频会话；复制为该会话的`audio.wav`与`audio.json`，保存主机估算的音画偏移。视频仍只有2秒前导，音频从开门确认开始，到视觉确认关门后立即结束，没有音频前导。
 - 等本次图像分析提交库存后，再转写和理解录音。`transcript.json`、`voice-result.json`和SQLite的`voice_interactions`保留处理状态、原话与结果。待核对/失败的视频不会自动猜测新物品身份；语音继续等待。失败语音可在收纳记录详情重试。
 - 日期写入复用`SpeechService.apply_facts`和既有字段来源校验。没有年份或只有保质期而没有生产日期时不猜到期日；同名多件或已有日期冲突时要求补充信息。不会仅凭讲话新增一件库存。
 - 提醒由独立线程触发，不依赖远程AI是否在线。网页收到通知并显示；浏览器TTS实际结束后回传`played`，显示收到和播报完成分别保存。浏览器阻止自动语音时，可在“提醒与任务”点击播放。每天提醒按`MIND_BOX_TIMEZONE`（默认Asia/Shanghai）续排。

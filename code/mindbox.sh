@@ -103,7 +103,7 @@ start_all() {
   command -v "$WEB_NPM" >/dev/null 2>&1 || fail "npm was not found; set NPM_BIN or install Node.js"
 
   start_process bridge "$DEVICE_DIR" "$DEVICE_PY" -u pc_door_bridge.py \
-    --port "$BRIDGE_PORT" --door-source vision --record-audio
+    --port "$BRIDGE_PORT" --door-source vision --record-audio --audio-tail 0
   start_process backend "$BACKEND_DIR" "$BACKEND_PY" -m app.server --port "$BACKEND_PORT"
   start_process web "$WEB_DIR" "$WEB_NPM" run dev -- --host 127.0.0.1 --port "$WEB_PORT" --strictPort
 

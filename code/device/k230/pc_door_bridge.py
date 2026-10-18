@@ -468,7 +468,8 @@ def main():
     parser.add_argument("--record-audio", action="store_true", help="Record the PC microphone while doors are open")
     parser.add_argument("--audio-device", help="Input device ID or name; default is the system input")
     parser.add_argument("--audio-output", default=str(Path(__file__).resolve().parent / "recordings"))
-    parser.add_argument("--audio-tail", type=float, default=2, help="Seconds after all drawers close (0-30)")
+    parser.add_argument("--audio-tail", type=float, default=0,
+                        help="Seconds after close confirmation before stopping audio (default: 0)")
     parser.add_argument("--list-audio-devices", action="store_true", help="List PC microphones and exit")
     args = parser.parse_args()
     if args.simulate and args.door_source == "vision":

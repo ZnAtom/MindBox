@@ -210,7 +210,7 @@ class VisionTests(unittest.TestCase):
     def test_audio_waits_for_open_and_survives_occlusion_until_confirmed_close_and_tail(self):
         from test_pc_audio import FakeMicrophone
         recorder = DoorAudioRecorder(self.state, Path(self.directory.name) / "audio", enabled=True,
-                                     clock=lambda: self.now, source_factory=FakeMicrophone)
+                                     clock=lambda: self.now, source_factory=FakeMicrophone, tail_seconds=2)
         with redirect_stdout(io.StringIO()):
             self.capture({1: self.markers[1]})
             recorder.step(self.state.snapshot())
