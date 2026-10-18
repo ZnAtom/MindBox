@@ -109,6 +109,24 @@ code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --door-s
 
 `/api/vision/state` 返回 `mode=marker_visibility`、每层 `open` / `known`、可见标记的 `corners`、`pending_drawer`、`pending_remaining_ms`、确认时间，以及 `camera_connected`、`camera_epoch`、`camera_fps`、`processing_fps`、`processing_ms`、`observation_age_ms`；后者是检测所用画面距电脑当前时间的毫秒数。`/api/vision/preview.jpg` 保留为带编号的单张预览兼容接口，识别页不轮询它。`/api/vision/markers/1.png` 至 `3.png` 是打印图片。视觉模式仅有一个权威门状态，板端 KEY 心跳不会覆盖它。
 
+## 中文语音唤醒（电脑麦克风）
+
+在仓库根目录准备依赖和本地模型（仅首次需要联网下载）：
+
+```sh
+code/device/k230/.venv/bin/python -m pip install -r code/device/k230/requirements-wake.txt
+code/device/k230/.venv/bin/python code/device/k230/download_wake_models.py
+./code/mindbox.sh restart
+```
+
+打开 http://127.0.0.1:5173/ 并允许网页播放声音。底部显示“你好小盒”时，可以说“你好小盒，坚果在哪里？”，也可以先说唤醒词，再在五秒内开始提问。设置中“中文唤醒”可临时关闭/开启；重启默认开启。唤醒时弹出提问面板，说话结束静音约 1.2 秒后提交，唤醒后单次最多录 25 秒；只唤醒而不提问会自动放弃。回答通过浏览器中文语音合成播放；浏览器阻止自动播报时可点回答下方的扬声器按钮。
+
+本地 sherpa-onnx 中文关键词模型持续监听，Silero VAD 判断说话结束，faster-whisper 转写，随后复用现有远端语义工具查询 SQLite、记录日期或设置提醒。待机音频只保留最近两秒内存缓冲，唤醒提问才保存 WAV；待机声音不发给远端。唤醒录音与开门录音共用一个系统麦克风流，但分别存档。开门期间优先收纳录音，已确认关门后立即停录；唤醒提问不依赖 K230 在线或视频会话。网页播报、按钮提问时临时暂停唤醒，浏览器关闭后暂停租约最长十五秒自动失效。
+
+默认词可通过启动环境变量 `MIND_BOX_WAKE_WORD='你好小盒'` 修改（限模型可编码的中文词）；`MIND_BOX_WAKE_ENABLED=0 ./code/mindbox.sh restart` 关闭启动时的唤醒。手动运行桥接需加 `--wake-word '你好小盒'`；`--wake-model-dir` 指定下载模型目录。模型放在忽略版本管理的 `models/wake/`，`sources.json` 记录官方下载地址和文件 SHA-256。此版是单次唤醒、单次交代，不保持多轮对话上下文。
+
+`GET /api/audio/wake/state` 返回 `status/word/event/pending/error`；`POST /api/audio/wake/control` 接受 `enabled` 或 `{client, paused}`，后者为每个网页独立续期的暂停租约；后端完成 `pending` 后回传 `{completed: audio_session_id}`。完整唤醒 WAV 通过原有 `/api/audio/sessions` 接口转交后端，其元数据 `origin=wake`，不等待视频库存提交。语音问答使用原有后端密钥配置，唤醒模型本身不需要 API 密钥。
+
 ## 缓存与接口
 
 HTTP 只监听 `127.0.0.1:8765`；Vite 将 `/api/doors`、`/api/camera`、`/api/audio` 和 `/api/vision` 转发到它。改端口时，同时设置 WebUI 的 `MIND_BOX_BRIDGE_URL`。

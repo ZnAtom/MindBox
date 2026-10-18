@@ -18,6 +18,7 @@ SPAWN_PYTHON="${SPAWN_PYTHON_BIN:-python3}"
 BACKEND_PORT="${MIND_BOX_BACKEND_PORT:-8787}"
 BRIDGE_PORT="${MIND_BOX_BRIDGE_PORT:-8765}"
 WEB_PORT="${MIND_BOX_WEB_PORT:-5173}"
+WAKE_WORD="${MIND_BOX_WAKE_WORD:-你好小盒}"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -102,8 +103,12 @@ start_all() {
   require_file "$DEVICE_PY"
   command -v "$WEB_NPM" >/dev/null 2>&1 || fail "npm was not found; set NPM_BIN or install Node.js"
 
+  local wake_args=(--wake-word "$WAKE_WORD")
+  if [[ "${MIND_BOX_WAKE_ENABLED:-1}" == "0" ]]; then
+    wake_args=(--wake-word '')
+  fi
   start_process bridge "$DEVICE_DIR" "$DEVICE_PY" -u pc_door_bridge.py \
-    --port "$BRIDGE_PORT" --door-source vision --record-audio --audio-tail 0
+    --port "$BRIDGE_PORT" --door-source vision --record-audio --audio-tail 0 "${wake_args[@]}"
   start_process backend "$BACKEND_DIR" "$BACKEND_PY" -m app.server --port "$BACKEND_PORT"
   start_process web "$WEB_DIR" "$WEB_NPM" run dev -- --host 127.0.0.1 --port "$WEB_PORT" --strictPort
 
