@@ -9,6 +9,7 @@ import httpx
 
 from .client import write_json
 from .database import encode, utcnow
+from .recognition import recognition_lock
 
 
 class Sessions:
@@ -53,14 +54,21 @@ class Sessions:
                        "WHERE state='capturing'", (utcnow(), encode({'reasons': ['capture_process_interrupted']})))
             db.execute("UPDATE automatic_sessions SET state='queued',updated_at=? WHERE state='processing'", (utcnow(),))
 
+    def pause_queued(self):
+        with self.store.db.transaction() as db:
+            db.execute("UPDATE automatic_sessions SET state='pending',updated_at=?,detail_json=? "
+                       "WHERE state='queued'", (utcnow(), encode({'reasons': ['recognition_disabled']})))
+
 
 class BridgeCapture:
     def __init__(self, sessions, bridge='http://127.0.0.1:8765', cabinet='cabinet-01',
                  *, preroll_ms=2000, tail_ms=2000, max_seconds=None, max_bytes=512 * 1024 * 1024,
-                 clock=time.monotonic):
+                 clock=time.monotonic, recognition=None):
         self.sessions, self.cabinet, self.bridge = sessions, cabinet, bridge.rstrip('/')
         self.preroll_ms, self.tail_ms = preroll_ms, tail_ms
         self.max_seconds, self.max_bytes, self.clock = max_seconds, max_bytes, clock
+        self.recognition = recognition
+        self.waiting_for_closed = recognition is not None
         self.active = None
         self.armed = False
         self.last_epoch = None
@@ -94,6 +102,19 @@ class BridgeCapture:
 
     def step(self, door, cache, load_frame):
         """A bridge snapshot and an injected JPEG reader also permit offline replay tests."""
+        with recognition_lock(self.recognition):
+            if self.recognition and not self.recognition.enabled:
+                self.pause_recognition()
+                return
+            self._step(door, cache, load_frame)
+
+    def pause_recognition(self):
+        self.finish('recognition_disabled')
+        self.armed = False
+        self.waiting_for_closed = True
+        self.status = {'connected': False, 'state': 'disabled'}
+
+    def _step(self, door, cache, load_frame):
         now = self.clock()
         message = door.get('state') or {}
         frames = cache.get('frames', [])
@@ -117,6 +138,11 @@ class BridgeCapture:
         reliable = len(opened) == 3 and len(known) == 3 and all(known)
         closed = reliable and not any(opened)
         drawers = [i + 1 for i, value in enumerate(opened) if value]
+        if self.waiting_for_closed:
+            if not closed:
+                self.status = {'connected': True, 'state': 'waiting_for_close'}
+                return
+            self.waiting_for_closed = False
         if self.active and self.active['boot_id'] != message.get('boot_id'):
             self.finish('door_process_restarted')
             self.armed = False
@@ -196,6 +222,13 @@ class BridgeCapture:
                 response.raise_for_status()
                 return response
             while not stopped.is_set():
+                with recognition_lock(self.recognition):
+                    disabled = self.recognition and not self.recognition.enabled
+                    if disabled:
+                        self.pause_recognition()
+                if disabled:
+                    stopped.wait(.1)
+                    continue
                 try:
                     self.step(get('/api/doors/state').json(), get('/api/camera/cache').json(),
                               lambda generation: get('/api/camera/frames/%d.jpg' % generation).content)

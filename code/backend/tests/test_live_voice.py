@@ -16,6 +16,7 @@ from app.server import create_app
 from app.store import Store
 from app.voice_api import VoiceAssistant
 from app.voice_runtime import VoiceRuntime
+from app.recognition import RecognitionControl
 
 
 @pytest.fixture
@@ -212,7 +213,8 @@ def test_unified_http_service_search_reminders_and_receipts(tmp_path):
 
 @pytest.mark.parametrize('transcript', ['你好小盒，坚果在哪里？', '你好小盒坚果在哪里？', '你好，小盒，坚果在哪里？',
                                        '你好小河，坚果在哪里？'])
-def test_wake_speech_queries_real_inventory_without_a_video_session(store, tmp_path, transcript):
+@pytest.mark.parametrize('recognition_enabled', [False, True])
+def test_wake_speech_queries_real_inventory_without_a_video_session(store, tmp_path, transcript, recognition_enabled):
     service = assistant(store, [('search_inventory', {'query': '坚果'})])
     service.output = tmp_path / 'voice'
     class Transcriber:
@@ -221,7 +223,9 @@ def test_wake_speech_queries_real_inventory_without_a_video_session(store, tmp_p
             return {'text': transcript, 'segments': []}
     service.transcriber = Transcriber()
     sessions = Sessions(store, tmp_path / 'sessions')
-    runtime = VoiceRuntime(service, sessions, 'http://unused.invalid')
+    control = RecognitionControl()
+    control.set_enabled(recognition_enabled)
+    runtime = VoiceRuntime(service, sessions, 'http://unused.invalid', recognition=control)
     metadata = {'complete': True, 'origin': 'wake', 'session_id': 'audio-wake',
         'cabinet_id': 'cabinet-01', 'wake_word': '你好小盒', 'stream_started_unix_ms': 1002000}
     runtime.collect([metadata], lambda _: b'test audio')
@@ -258,3 +262,24 @@ def test_keyword_only_does_not_call_remote_ai(store, tmp_path):
         row = db.execute('SELECT state,result_json FROM voice_interactions').fetchone()
         assert row['state'] == 'completed'
         assert json.loads(row['result_json'])['status'] == 'no_speech'
+
+
+def test_disabled_item_recognition_skips_door_speech_and_does_not_replay_old_audio(store, tmp_path):
+    service = assistant(store, [])
+    sessions = Sessions(store, tmp_path / 'sessions')
+    identity, root = sessions.create('cabinet-01')
+    write_json(root / 'session.json', {'id': identity, 'boot_id': 'board', 'trigger_monotonic': 100,
+        'frames': [{'received_unix_ms': 1000000}]})
+    sessions.update(identity, 'committed')
+    control = RecognitionControl()
+    runtime = VoiceRuntime(service, sessions, 'http://unused.invalid', recognition=control)
+    metadata = {'complete': True, 'session_id': 'old-door-audio', 'boot_id': 'board',
+        'cabinet_id': 'cabinet-01', 'trigger_received_monotonic': 100.05, 'stream_started_unix_ms': 1002000}
+    download = lambda _: pytest.fail('Disabled or old door audio must not be downloaded')
+    runtime.collect([metadata], download)
+    assert not runtime.process_next()
+    service.begin('cabinet-01', 'door', session=identity, audio_session='old-pending-door', state='waiting_inventory')
+    control.set_enabled(True)
+    runtime.collect([metadata], download)
+    assert not runtime.process_next()
+    assert store.get_inventory_snapshot()['inventory_revision'] == 1

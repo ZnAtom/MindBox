@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import Field
+from pydantic import Field, StrictBool
 import uvicorn
 
 from .automatic import AutomaticRecorder, inside_path, read_json
@@ -20,6 +20,7 @@ from .inventory_schemas import Strict, ItemValues
 from .store import Store
 from .voice_api import VoiceAssistant, mount_routes
 from .voice_runtime import VoiceRuntime
+from .recognition import RecognitionControl
 
 
 @contextmanager
@@ -58,16 +59,22 @@ class AddItem(Strict):
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
+class RecognitionMode(Strict):
+    enabled: StrictBool
+
+
 def create_app(database=None, session_root=None, bridge=None, *, workers=True):
     Settings.load()
     database = Path(database or os.getenv('MIND_BOX_DATABASE', ROOT / 'var/mind-box.sqlite3')).resolve()
     store = Store(database)
     store.initialize()
     sessions = Sessions(store, session_root or database.parent / (database.stem + '-sessions'))
-    capture = BridgeCapture(sessions, bridge or os.getenv('MIND_BOX_BRIDGE_URL', 'http://127.0.0.1:8765'))
-    recorder = AutomaticRecorder(sessions)
+    recognition = RecognitionControl()
+    capture = BridgeCapture(sessions, bridge or os.getenv('MIND_BOX_BRIDGE_URL', 'http://127.0.0.1:8765'),
+                            recognition=recognition)
+    recorder = AutomaticRecorder(sessions, recognition=recognition)
     assistant = VoiceAssistant(database=database)
-    voice = VoiceRuntime(assistant, sessions, capture.bridge)
+    voice = VoiceRuntime(assistant, sessions, capture.bridge, recognition=recognition)
     stopped = threading.Event()
 
     @asynccontextmanager
@@ -89,6 +96,7 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
     app = FastAPI(title='Mind Box', lifespan=lifespan)
     app.state.store, app.state.sessions = store, sessions
     app.state.capture, app.state.recorder = capture, recorder
+    app.state.recognition = recognition
     app.state.assistant, app.state.voice = assistant, voice
     mount_routes(app, assistant)
 
@@ -163,8 +171,20 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
             counts = {row[0]: row[1] for row in db.execute('SELECT state,count(*) FROM automatic_sessions GROUP BY state')}
         configured = bool(os.getenv('MIND_BOX_AUTO_API_KEY'))
         return {'capture': capture.status, 'counts': counts, 'model_configured': configured,
+                'recognition': recognition.snapshot(),
                 'model': os.getenv('MIND_BOX_AUTO_MODEL', 'gpt-6.1-sol'),
                 'sessions': [{k: v for k, v in session.items() if k != 'root'} for session in sessions.list()]}
+
+    @app.post('/api/recording/control')
+    def recording_control(body: RecognitionMode):
+        with recognition.lock:
+            if recognition.enabled != body.enabled:
+                # Old queued operations require an explicit retry, not a later enable click.
+                sessions.pause_queued()
+                if not body.enabled:
+                    capture.pause_recognition()
+                recognition.set_enabled(body.enabled)
+            return recognition.snapshot()
 
     @app.get('/api/recording/sessions/{identity}')
     def session_detail(identity: str):
@@ -201,6 +221,8 @@ def create_app(database=None, session_root=None, bridge=None, *, workers=True):
 
     @app.post('/api/recording/sessions/{identity}/{action}')
     def change_session(identity: str, action: str):
+        if action == 'retry' and not recognition.enabled:
+            raise Conflict('请先开启物品识别，再重试。')
         with store.db.transaction() as db:
             row = db.execute('SELECT state,root FROM automatic_sessions WHERE id=?', (identity,)).fetchone()
             if not row:

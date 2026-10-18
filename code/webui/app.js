@@ -1,9 +1,9 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2 } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2, ScanEye } from 'lucide';
 import { samplePhotos } from './item-visuals.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2 };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2, ScanEye };
 const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
@@ -94,6 +94,8 @@ let storageWarningShown = false;
 let transferFeedback = null;
 let receiptTimer;
 let demoPhotoIndex = 0;
+const doorTransferDemo = { enabled: true, nextDirection: 'out', identity: null, previous: [null, null, null], opened: [false, false, false], queue: [] };
+let recognition = { enabled: false, connected: false, busy: false };
 let hardware = { connected: false, state: null };
 let camera = { connected: false, latest: null, cached_frames: 0 };
 let audio = { enabled: false, status: 'disabled' };
@@ -156,6 +158,25 @@ function syncTransferControls() {
   const hasItems = activeDevice().items.some((item) => item.drawer === selectedDrawer);
   document.querySelectorAll('#demo-remove, [data-action="demo-remove"]').forEach((button) => { button.disabled = busy || !hasItems || isPhysical(); });
   document.documentElement.classList.toggle('reduce-motion', state.reducedMotion || motionPreference.matches);
+  renderRecognitionControl();
+}
+function renderRecognitionControl() {
+  const button = $('recognition-toggle');
+  button.disabled = recognition.busy || !recognition.connected || !isPhysical();
+  button.setAttribute('aria-pressed', String(recognition.enabled));
+  button.dataset.tooltip = !recognition.connected ? '物品识别：服务未连接' : recognition.busy ? '正在切换物品识别' : recognition.enabled ? '物品识别：已开启，点击关闭' : '物品识别：已关闭，点击开启';
+}
+async function toggleRecognition() {
+  if (recognition.busy || !recognition.connected || !isPhysical()) return;
+  recognition.busy = true;
+  renderRecognitionControl();
+  try {
+    const value = await api('/api/recording/control', { method: 'POST', body: { enabled: !recognition.enabled } });
+    recognition.enabled = value.enabled;
+    toast(value.enabled ? '物品识别已开启，将识别下一次完整收纳操作' : '物品识别已关闭');
+    await refreshRecording();
+  } catch (error) { toast(error.message); }
+  finally { recognition.busy = false; renderRecognitionControl(); }
 }
 function setPanel(collapsed, rememberFocus = false) {
   panelCollapsed = collapsed;
@@ -222,6 +243,8 @@ function liveView() {
 }
 function recordingLabel() {
   if (!inventory.connected) return '库存服务未连接';
+  if (recording.recognition?.enabled === false) return '物品识别已关闭';
+  if (recording.capture.state === 'waiting_for_close') return '等待关门后开始下一次识别';
   if (recording.capture.state === 'capturing') return '正在记录收纳过程';
   const counts = recording.counts;
   if (counts.processing || counts.queued) return `正在识别 · ${(counts.processing || 0) + (counts.queued || 0)} 次`;
@@ -315,6 +338,59 @@ function applyDoorSnapshot(snapshot) {
     if (activeTab === 'overview') renderPanel();
   }
   renderHardwareStatus();
+  observeDoorTransferDemo();
+}
+function resetDoorDemoObservation() {
+  doorTransferDemo.identity = null;
+  doorTransferDemo.previous = [null, null, null];
+  doorTransferDemo.opened = [false, false, false];
+}
+function cancelTransferFeedback() {
+  cabinet?.cancelTransfer();
+  clearTimeout(receiptTimer);
+  transferFeedback = null;
+  $('transfer-label').hidden = true;
+}
+function resetTransferDemo() {
+  doorTransferDemo.enabled = true;
+  doorTransferDemo.nextDirection = 'out';
+  doorTransferDemo.queue.length = 0;
+  resetDoorDemoObservation();
+  if (transferFeedback?.doorDemo) { cancelTransferFeedback(); renderDock(); }
+  observeDoorTransferDemo();
+}
+function observeDoorTransferDemo() {
+  if (!doorTransferDemo.enabled) return;
+  const message = hardware.state;
+  if (!isPhysical() || !hardware.connected || !message) { resetDoorDemoObservation(); return; }
+  const identity = JSON.stringify([message.device_id, message.boot_id, message.source]);
+  if (doorTransferDemo.identity !== identity) {
+    resetDoorDemoObservation();
+    doorTransferDemo.identity = identity;
+  }
+  message.open.forEach((open, index) => {
+    if (message.known && message.known[index] !== true) {
+      doorTransferDemo.previous[index] = null;
+      doorTransferDemo.opened[index] = false;
+      return;
+    }
+    const previous = doorTransferDemo.previous[index];
+    if (open && previous === false) doorTransferDemo.opened[index] = true;
+    // Count only a complete observed cycle, never an initial open snapshot or a reconnect.
+    if (!open && previous === true && doorTransferDemo.opened[index]) {
+      doorTransferDemo.queue.push({ direction: doorTransferDemo.nextDirection, drawer: index + 1 });
+      doorTransferDemo.nextDirection = 'in';
+      doorTransferDemo.opened[index] = false;
+    }
+    doorTransferDemo.previous[index] = open;
+  });
+  playNextDoorDemoTransfer();
+}
+function playNextDoorDemoTransfer() {
+  if (transferBusy() || !isPhysical()) return;
+  const next = doorTransferDemo.queue.shift();
+  if (!next) return;
+  playTransferFeedback(next.direction, { id: uid(), name: '物品', kind: 'package', shape: 'box', drawer: next.drawer }, { doorDemo: true });
 }
 function applyCameraSnapshot(snapshot) {
   if (!snapshot || typeof snapshot.connected !== 'boolean') return;
@@ -328,10 +404,9 @@ function setTab(tab) {
   $('panel-content').scrollTop = 0;
 }
 function switchDevice(id) {
-  cabinet?.cancelTransfer();
-  clearTimeout(receiptTimer);
-  transferFeedback = null;
-  $('transfer-label').hidden = true;
+  cancelTransferFeedback();
+  doorTransferDemo.queue.length = 0;
+  resetDoorDemoObservation();
   activeId = id;
   selectedDrawer = 1;
   drawerFilter = 0;
@@ -339,6 +414,7 @@ function switchDevice(id) {
   inventoryMatches = null;
   $('command-response').hidden = true;
   render(true);
+  observeDoorTransferDemo();
 }
 function toggleDrawer() {
   if (transferBusy()) return;
@@ -370,28 +446,37 @@ function recordTransfer(direction, item) {
   if (direction === 'out' && !device.items.some((entry) => entry.id === item.id)) return;
   const linked = device.id === hardwareDeviceId && (hardware.connected || vision.enabled);
   if (linked && (!drawerKnown(device, item.drawer - 1) || !device.open[item.drawer - 1])) { toast('请先打开对应抽屉，再演示取放'); return; }
-  clearTimeout(receiptTimer);
   const id = uid();
   selectedDrawer = item.drawer;
   if (!linked) device.open[item.drawer - 1] = true;
   if (direction === 'in') device.items.unshift(item);
   else device.items = device.items.filter((entry) => entry.id !== item.id);
   device.activity.unshift({ id, title: (direction === 'in' ? '放入' : '取出') + item.name, drawer: item.drawer, kind: item.kind, photo: item.photo, time: timeNow(), direction, demo: true });
-  transferFeedback = { id, itemId: item.id, name: item.name, drawer: item.drawer, direction, phase: 'moving' };
+  persist();
+  playTransferFeedback(direction, item, { id });
+  if (panelCollapsed) document.querySelector('.activity-dot').hidden = false;
+}
+function playTransferFeedback(direction, item, { id = uid(), doorDemo = false } = {}) {
+  clearTimeout(receiptTimer);
+  selectedDrawer = item.drawer;
+  transferFeedback = { id, itemId: item.id, name: item.name, drawer: item.drawer, direction, phase: 'moving', doorDemo };
   $('transfer-label').hidden = true;
   $('transfer-name').textContent = item.name;
   $('transfer-direction').textContent = ordinals[item.drawer - 1] + ' / ' + (direction === 'in' ? '正在放入' : '正在取出');
   $('transfer-symbol').innerHTML = itemVisual(item, 'transfer');
   $('transfer-progress').style.transform = 'scaleX(0)';
-  // Inventory is committed by this preview action; animation only visualizes that change.
-  render(); persist();
-  if (panelCollapsed) document.querySelector('.activity-dot').hidden = false;
+  render();
   const finish = () => {
     if (transferFeedback?.id !== id) return;
     transferFeedback.phase = 'done';
     $('transfer-label').hidden = true;
     renderDock();
-    receiptTimer = setTimeout(() => { transferFeedback = null; renderDock(); }, 2600);
+    receiptTimer = setTimeout(() => {
+      if (transferFeedback?.id !== id) return;
+      transferFeedback = null;
+      renderDock();
+    }, 2600);
+    playNextDoorDemoTransfer();
   };
   if (!cabinet || document.hidden) { finish(); return; }
   cabinet.playTransfer({ direction, item, drawer: item.drawer, onComplete: finish, onFrame: ({ x, y, progress }) => {
@@ -513,6 +598,7 @@ const reasonLabels = {
   physical_identity_uncertain: '物品身份不确定', existing_item_match_required: '需要核对已有物品',
   return_identity_match_required: '需要核对放回的物品', physical_identity_or_action_uncertain: '物品或动作不确定',
   inventory_changed_during_analysis: '识别期间库存被修改', conflicting_observations: '前后画面判断有冲突',
+  recognition_disabled: '物品识别已关闭，本次未处理',
 };
 function reasonText(reason) {
   const value = typeof reason === 'string' ? reason : reason.reason;
@@ -575,6 +661,9 @@ async function refreshRecording() {
   const value = await api('/api/recording/state');
   const signature = JSON.stringify(value);
   recording = value;
+  recognition.enabled = value.recognition?.enabled === true;
+  recognition.connected = typeof value.recognition?.enabled === 'boolean';
+  renderRecognitionControl();
   if (signature !== recordingSignature) {
     recordingSignature = signature;
     if (isPhysical() && activeTab === 'overview') renderPanel();
@@ -655,6 +744,7 @@ async function refreshVoice() {
 async function pollInventory() {
   try { await refreshInventory(); await refreshRecording(); await refreshReminders(); await refreshVoice(); }
   catch {
+    recognition.connected = false;
     if (inventory.connected) {
       inventory = { ...inventory, connected: false };
       if (isPhysical()) renderPanel();
@@ -968,6 +1058,8 @@ $('add-device').addEventListener('click', openAddDevice);
 $('demo-drawer').addEventListener('click', toggleDrawer);
 $('demo-insert').addEventListener('click', demoInsert);
 $('demo-remove').addEventListener('click', demoRemove);
+$('reset-transfer-demo').addEventListener('click', resetTransferDemo);
+$('recognition-toggle').addEventListener('click', toggleRecognition);
 $('reset-view').addEventListener('click', () => cabinet?.resetView());
 $('command-button').addEventListener('click', commandOpen);
 $('close-command').addEventListener('click', () => { $('command-panel').hidden = true; $('command-button').focus(); });
@@ -987,6 +1079,8 @@ let doorEvents;
 function disconnectDoorEvents() {
   const wasConnected = hardware.connected;
   hardware = { ...hardware, connected: false };
+  resetDoorDemoObservation();
+  doorTransferDemo.queue.length = 0;
   renderHardwareStatus();
   if (wasConnected && activeDevice().id === hardwareDeviceId) renderDock();
   if (wasConnected && activeDevice().id === hardwareDeviceId && activeTab === 'overview') renderPanel();
@@ -1085,4 +1179,4 @@ import('./cabinet.js').then(({ createCabinet }) => {
 });
 
 // Read-only diagnostics for browser verification, with no production inventory writes.
-window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), itemCount: activeDevice().items.length, items: activeDevice().items, inventory, recording, transfer: transferFeedback ? { ...transferFeedback } : null, hardware, camera, audio, vision, model: cabinet?.snapshot() }) };
+window.mindBoxPreview = { snapshot: () => ({ device: activeId, selectedDrawer, open: [...activeDevice().open], panelCollapsed, theme: resolvedTheme(), itemCount: activeDevice().items.length, items: activeDevice().items, inventory, recording, recognition: { ...recognition }, transfer: transferFeedback ? { ...transferFeedback } : null, doorTransferDemo: { enabled: doorTransferDemo.enabled, nextDirection: doorTransferDemo.nextDirection, pending: doorTransferDemo.queue.length }, hardware, camera, audio, vision, model: cabinet?.snapshot() }) };

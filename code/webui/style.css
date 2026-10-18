@@ -53,6 +53,7 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .scene-tools { position: absolute; right: 24px; top: 30px; z-index: 2; display: flex; gap: 3px; }
 .tool-divider { width: 1px; height: 17px; background: var(--line); align-self: center; margin: 0 7px; }
 .scene-tools .icon-button:disabled { opacity: .3; }
+.recognition-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .viewport { position: absolute; inset: 102px 0 115px; }
 .viewport canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .viewport canvas:active { cursor: grabbing; }
@@ -152,6 +153,8 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .command-trigger svg { width: 16px; height: 16px; }
 .bottom-status { display: flex; gap: 7px; align-items: center; color: var(--muted); font-size: 10px; min-width: 130px; justify-content: flex-end; }
 .bottom-status svg { width: 13px; height: 13px; }
+.transfer-demo-reset { opacity: .45; flex: 0 0 28px; }
+.transfer-demo-reset:hover, .transfer-demo-reset:focus-visible { opacity: 1; }
 .live-view { margin-bottom: 22px; }
 .live-heading { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 11px; }
 .live-heading .inline-actions { margin-left: auto; }
