@@ -10,5 +10,6 @@ __pycache__/
 .pytest_cache/
 code/backend/var/
 code/var/
+code/device/k230/models/
 data/processed/
 data/runs/

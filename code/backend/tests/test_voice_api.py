@@ -120,6 +120,32 @@ def test_query_uses_remote_tool_and_returns_answer(inventory, monkeypatch):
     assert [call[0] for call in client.calls] == ["voice_inventory_tool", "voice_inventory_answer"]
 
 
+def test_local_asr_reads_current_inventory_vocabulary_for_each_recording(inventory, monkeypatch):
+    assistant = voice_api.VoiceAssistant(database=inventory.db.path,
+        settings=Settings('https://example.invalid', 'secret', 'test'), client=FakeClient())
+    calls = []
+    def wav_payload():
+        buffer = BytesIO()
+        with wave.open(buffer, 'wb') as output:
+            output.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+            output.writeframes(b'\0\0' * 160)
+        return buffer.getvalue()
+
+    class Model:
+        def transcribe(self, audio, **options):
+            assert audio.shape == (160,)
+            calls.append(options)
+            return [], SimpleNamespace(language='zh')
+    monkeypatch.setattr(assistant.transcriber, '_load', lambda: Model())
+    assistant.transcriber.transcribe(wav_payload())
+    inventory.create_item('cabinet-01', {'name': '维生素'}, 1, 'vitamins', 'test')
+    assistant.transcriber.transcribe(wav_payload())
+    assert calls[0]['hotwords'] == '鱼油'
+    assert '维生素' not in calls[0]['initial_prompt']
+    assert '鱼油' in calls[1]['hotwords'] and '维生素' in calls[1]['hotwords']
+    assert '简体中文' in calls[1]['initial_prompt']
+
+
 def test_missing_remote_key_fails_before_audio_processing(tmp_path, monkeypatch):
     assistant = voice_api.VoiceAssistant(
         database=tmp_path / "missing.sqlite3",

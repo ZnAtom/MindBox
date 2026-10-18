@@ -1,10 +1,10 @@
 import './style.css';
-import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw } from 'lucide';
+import { createIcons, Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw } from 'lucide';
 import { samplePhotos } from './item-visuals.js';
 import { openConnections } from './connections.js';
 
 const $ = (id) => document.getElementById(id);
-const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw };
+const icons = { Box, Moon, Sun, Settings2, RotateCcw, Play, Archive, Plus, PanelRightClose, PanelRightOpen, Check, CircleDashed, Mic, Square, HardDrive, MessageCircle, X, ArrowUp, ChevronRight, ChevronDown, Sparkles, RefreshCw, ArrowDownLeft, ArrowUpRight, CameraOff, PackagePlus, PackageMinus, Search, Cable, Cookie, Pill, Milk, Coffee, CupSoda, Package, Headphones, BatteryCharging, Smartphone, NotebookPen, Monitor, Trash2, Bell, CheckCheck, History, Volume2, KeyRound, Copy, ArrowLeft, Link2, Unplug, ShieldCheck, RotateCw };
 const iconNames = new Set(Object.keys(icons).map((name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const paintIcons = () => createIcons({ icons, attrs: { 'aria-hidden': 'true' } });
@@ -100,6 +100,10 @@ let camera = { connected: false, latest: null, cached_frames: 0 };
 let audio = { enabled: false, status: 'disabled' };
 let vision = { enabled: false, status: 'disabled' };
 let voiceQuery = { recorder: null, stream: null, chunks: [], recording: false, busy: false };
+let wake = { enabled: false, status: 'disabled', event: 0 };
+const microphoneClient = 'web-' + crypto.randomUUID();
+const speechJobs = new Set();
+let lastSpokenAnswer = '';
 let voiceInitialized = false;
 const seenDoorResults = new Set();
 const attemptedDeliveries = new Set();
@@ -600,7 +604,7 @@ function playReminder(entry) {
   utterance.onstart = () => acknowledgeDelivery(entry, 'received').catch(() => {});
   utterance.onend = () => acknowledgeDelivery(entry, 'played').then(refreshReminders).catch(() => {});
   utterance.onerror = () => acknowledgeDelivery(entry, 'failed').then(refreshReminders).catch(() => {});
-  window.speechSynthesis.speak(utterance);
+  queueSpeech(utterance);
 }
 async function refreshReminders() {
   const value = await api('/api/reminders');
@@ -619,7 +623,8 @@ async function refreshReminders() {
       acknowledgeDelivery(entry, 'received').catch(() => {});
     }
     if (entry.channel === 'voice' && entry.state !== 'failed' && !attemptedDeliveries.has(entry.id)
-        && !voiceQuery.recording && !['recording', 'starting', 'tail'].includes(audio.status)) playReminder(entry);
+        && !voiceQuery.recording && !['recording', 'processing'].includes(wake.status)
+        && !['recording', 'starting', 'tail'].includes(audio.status)) playReminder(entry);
   }
   if (signature !== reminderSignature) {
     reminderSignature = signature;
@@ -628,24 +633,27 @@ async function refreshReminders() {
 }
 async function refreshVoice() {
   const value = await api('/api/voice/state');
-  const interactions = value.interactions.filter((entry) => entry.origin === 'door');
+  const interactions = value.interactions.filter((entry) => ['door', 'wake'].includes(entry.origin));
   if (!voiceInitialized) {
     interactions.filter((entry) => ['completed', 'failed'].includes(entry.state)).forEach((entry) => seenDoorResults.add(entry.id));
     voiceInitialized = true;
   }
   for (const entry of [...interactions].reverse()) {
     if (!['completed', 'failed'].includes(entry.state) || seenDoorResults.has(entry.id)) continue;
+    if (entry.origin === 'wake' && document.visibilityState !== 'visible') continue;
     seenDoorResults.add(entry.id);
     const message = entry.result.answer || entry.result.error;
     if (message) {
       $('command-panel').hidden = false;
-      answer(`${entry.transcript ? '收纳时说：' + entry.transcript + '\n\n' : ''}${message}`);
-      if (entry.state === 'completed' && !voiceQuery.recording && !['recording', 'starting', 'tail'].includes(audio.status)) speakAnswer(message);
-      setVoiceStatus(entry.state === 'completed' ? '收纳语音已处理' : '收纳语音处理失败');
+      answer(`${entry.transcript ? (entry.origin === 'wake' ? '你说：' : '收纳时说：') + entry.transcript + '\n\n' : ''}${message}`);
+      if (entry.state === 'completed' && !voiceQuery.recording && !['recording', 'starting', 'tail'].includes(audio.status)) {
+        await speakInteraction(entry, message);
+      }
+      setVoiceStatus(entry.state === 'completed' ? '语音已处理' : '语音处理失败');
     }
   }
   if (interactions[0]?.state === 'waiting_inventory' && !voiceQuery.busy && !voiceQuery.recording) setVoiceStatus('收纳语音等待库存识别');
-  if (interactions[0]?.state === 'processing' && !voiceQuery.busy && !voiceQuery.recording) setVoiceStatus('正在处理收纳语音');
+  if (['queued', 'processing'].includes(interactions[0]?.state) && !voiceQuery.busy && !voiceQuery.recording) setVoiceStatus('正在处理语音');
 }
 async function pollInventory() {
   try { await refreshInventory(); await refreshRecording(); await refreshReminders(); await refreshVoice(); }
@@ -716,6 +724,14 @@ function settings() {
   connectionsRow.addEventListener('click', () => openConnections({ openModal, icon, paintIcons, esc, toast, back: settings }));
   visionRow.after(connectionsRow);
   $('vision-setup').addEventListener('click', () => { location.href = '/vision.html'; });
+  const wakeRow = document.createElement('div');
+  wakeRow.className = 'setting-row';
+  wakeRow.innerHTML = `<span>中文唤醒 · ${esc(wake.word || '你好小盒')}</span><label class="toggle"><input type="checkbox" id="wake-toggle" aria-label="中文语音唤醒" ${wake.enabled ? 'checked' : ''}><span></span></label>`;
+  $('modal-body').prepend(wakeRow);
+  $('wake-toggle').addEventListener('change', async (event) => {
+    try { wake = await api('/api/audio/wake/control', { method: 'POST', body: { enabled: event.target.checked } }); }
+    catch (error) { event.target.checked = wake.enabled; toast(error.message); }
+  });
   paintIcons();
   $('motion-toggle').addEventListener('change', (event) => { state.reducedMotion = event.target.checked; persist(); syncModel(); syncTransferControls(); });
   syncTransferControls();
@@ -724,7 +740,12 @@ function commandOpen() {
   $('command-panel').hidden = false;
   $('command-input').focus();
 }
-function answer(text) { $('command-response').textContent = text; $('command-response').hidden = false; }
+function answer(text) {
+  $('command-response').textContent = text;
+  $('command-response').hidden = !text;
+  $('play-voice-answer').hidden = true;
+  lastSpokenAnswer = '';
+}
 function setVoiceStatus(text) { $('voice-status').textContent = text; }
 function setVoiceButton() {
   const button = $('record-command');
@@ -737,12 +758,57 @@ function setVoiceButton() {
   button.innerHTML = icon(voiceQuery.recording ? 'square' : 'mic');
   paintIcons();
 }
+async function updateWakeLease() {
+  const response = await fetch('/api/audio/wake/control', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(3000),
+    body: JSON.stringify({ client: microphoneClient,
+      paused: speechJobs.size > 0 || voiceQuery.recording || voiceQuery.busy }) });
+  if (!response.ok && response.status !== 404) throw new Error('无法暂停唤醒检测');
+}
+async function queueSpeech(utterance) {
+  const job = {};
+  speechJobs.add(job);
+  let timer;
+  const finish = () => {
+    clearTimeout(timer);
+    speechJobs.delete(job);
+    updateWakeLease().catch(() => {});
+  };
+  const ended = utterance.onend;
+  const failed = utterance.onerror;
+  utterance.onend = (event) => { finish(); ended?.(event); };
+  utterance.onerror = (event) => { finish(); failed?.(event); setVoiceStatus('可点击播放回答'); };
+  // Acquire the pause before audio starts; renew it while speech is queued or playing.
+  try {
+    await updateWakeLease();
+    if (!speechJobs.has(job)) return;
+    timer = setTimeout(finish, 180000);
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    finish();
+    setVoiceStatus('播报暂不可用，可点击播放回答');
+  }
+}
+async function speakInteraction(entry, message) {
+  const claim = async () => {
+    const key = 'mindbox-spoken-' + entry.id;
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, String(Date.now()));
+    } catch { /* Storage can be unavailable in private browser sessions. */ }
+    speakAnswer(message);
+  };
+  if (navigator.locks) await navigator.locks.request('mindbox-speech', claim);
+  else await claim();
+}
 function speakAnswer(text) {
   if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return false;
+  lastSpokenAnswer = text;
+  $('play-voice-answer').hidden = false;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN';
   utterance.rate = .98;
-  window.speechSynthesis.speak(utterance);
+  queueSpeech(utterance);
   return true;
 }
 async function sendVoiceAudio(blob) {
@@ -766,6 +832,7 @@ async function sendVoiceAudio(blob) {
   } finally {
     voiceQuery.busy = false;
     setVoiceButton();
+    updateWakeLease().catch(() => {});
   }
 }
 function stopVoiceRecording() {
@@ -784,6 +851,9 @@ async function toggleVoiceRecording() {
   }
   try {
     window.speechSynthesis?.cancel();
+    speechJobs.clear();
+    voiceQuery.busy = true;
+    await updateWakeLease();
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? { mimeType: 'audio/webm;codecs=opus' } : {};
     const recorder = new MediaRecorder(stream, options);
@@ -795,12 +865,14 @@ async function toggleVoiceRecording() {
       voiceQuery.stream = null;
       voiceQuery.recorder = null;
       if (blob.size) sendVoiceAudio(blob);
-      else setVoiceStatus('没有录到声音');
+      else { setVoiceStatus('没有录到声音'); updateWakeLease().catch(() => {}); }
     }, { once: true });
     recorder.start(250);
     setVoiceStatus('正在录音，再次点击结束');
     setVoiceButton();
   } catch (error) {
+    voiceQuery.busy = false;
+    updateWakeLease().catch(() => {});
     setVoiceStatus('麦克风权限未开启');
     answer('无法访问电脑麦克风：' + error.message);
   }
@@ -976,6 +1048,32 @@ async function pollAudio() {
   }
 }
 pollAudio();
+const wakeLabels = { loading: '正在加载中文唤醒', listening: '等待唤醒', recording: '正在听，请讲',
+  processing: '正在处理语音', paused: '唤醒已暂停', disabled: '中文唤醒已关闭',
+  no_speech: '没有听到问题', error: '中文唤醒不可用', unavailable: '语音服务未连接' };
+async function pollWake() {
+  try {
+    const next = await api('/api/audio/wake/state');
+    if (next.event > wake.event && wake.word) {
+      $('command-panel').hidden = false;
+      answer('');
+    }
+    const changed = next.status !== wake.status;
+    wake = next;
+    $('wake-indicator').textContent = wake.enabled ? (wake.status === 'listening' ? wake.word : wakeLabels[wake.status] || '中文唤醒') : '问问 mind box';
+    $('wake-indicator').title = wake.error || wakeLabels[wake.status] || '';
+    if (changed && !voiceQuery.recording && !voiceQuery.busy && speechJobs.size === 0) setVoiceStatus(wakeLabels[wake.status] || '');
+  } catch { wake = { ...wake, status: 'unavailable' }; }
+  finally { setTimeout(pollWake, 350); }
+}
+pollWake();
+setInterval(() => {
+  if (speechJobs.size || voiceQuery.recording || voiceQuery.busy) updateWakeLease().catch(() => {});
+}, 3000);
+$('play-voice-answer').addEventListener('click', () => { if (lastSpokenAnswer) speakAnswer(lastSpokenAnswer); });
+window.addEventListener('pagehide', () => {
+  navigator.sendBeacon('/api/audio/wake/control', JSON.stringify({ client: microphoneClient, paused: false }));
+});
 async function pollVision() {
   try {
     const response = await fetch('/api/vision/state', { cache: 'no-store', signal: AbortSignal.timeout(3000) });

@@ -147,7 +147,7 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .activity-dot { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); top: 6px; right: 6px; }
 .bottom-bar { height: 56px; flex: 0 0 56px; border-top: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: space-between; padding: 0 32px; position: relative; z-index: 6; }
 .clock { font-size: 11px; color: var(--muted); min-width: 130px; }
-.command-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 36px; padding: 0 16px; background: transparent; border-radius: 6px; font-size: 12px; }
+.command-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; width: 180px; min-height: 36px; padding: 0 16px; background: transparent; border-radius: 6px; font-size: 12px; }
 .command-trigger:hover { background: var(--surface-soft); }
 .command-trigger svg { width: 16px; height: 16px; }
 .bottom-status { display: flex; gap: 7px; align-items: center; color: var(--muted); font-size: 10px; min-width: 130px; justify-content: flex-end; }
@@ -221,7 +221,7 @@ svg.lucide { width: 19px; height: 19px; stroke-width: 1.65; flex: 0 0 auto; }
 .voice-button.busy { opacity: .55; cursor: wait; }
 .voice-button svg { width: 15px; height: 15px; }
 .send-button { width: 32px; height: 32px; border-radius: 50%; background: var(--text); color: var(--surface); display: grid; place-items: center; flex: 0 0 auto; }
-.command-response { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 13px; font-size: 12px; line-height: 1.9; }
+.command-response { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 13px; font-size: 12px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(40vh, 320px); overflow-y: auto; }
 dialog { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 24px; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 64px); box-shadow: var(--shadow); }
 dialog::backdrop { background: #00000038; }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
@@ -276,7 +276,7 @@ dialog::backdrop { background: #00000038; }
   .drawer-button strong { font-size: 10px; } .drawer-button small { font-size: 9px; }
   .bottom-bar { height: 53px; flex-basis: 53px; padding: 0 18px; } .clock { min-width: 0; font-size: 10px; }
   .bottom-status { min-width: 0; } .bottom-status span { display: none; }
-  .command-trigger { padding: 0 9px; font-size: 11px; } .command-panel { bottom: 67px; }
+  .command-trigger { width: 156px; padding: 0 9px; font-size: 11px; } .command-panel { bottom: 67px; }
   .device-section { padding-top: 12px; }
   .transfer-label { width: 170px; padding: 9px 10px; gap: 7px; }
   .item-preview { gap: 14px; }

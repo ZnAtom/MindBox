@@ -63,7 +63,7 @@ class Microphone:
 
 
 class DoorAudioRecorder:
-    def __init__(self, state, output, enabled=False, device=None, tail_seconds=2,
+    def __init__(self, state, output, enabled=False, device=None, tail_seconds=0,
                  clock=time.monotonic, source_factory=None, max_seconds=MAX_SESSION_SECONDS):
         if not 0 <= tail_seconds <= 30 or max_seconds <= 0:
             raise ValueError("Invalid audio session duration")
