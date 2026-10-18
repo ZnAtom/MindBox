@@ -13,6 +13,7 @@ from .client import image_part, write_json
 from .config import Settings
 from .database import Conflict, encode, fingerprint
 from .policy import compact, descriptive_identity
+from .recognition import recognition_lock
 from model_comparison.long_video import (Packet, apply_packet, digest, plan_slices,
     prototypes, read_slice)
 from model_comparison.long_video_audit import unresolved
@@ -46,6 +47,7 @@ class CaptureClient(ResponsesClient):
     def __init__(self, settings, root, manifest):
         super().__init__(settings, root / 'api')
         self.root = root
+        self.before_request = None
         self.seeds = read_json(root / 'inventory-context.json')['seeds']
         self.context = ('这是实际柜子的连续自动记录。ledger 中 inventory_item_id 是已有库存身份；'
             '历史外观图只用于辨认。能确定是原件才沿用 ID，不能只凭同名/同款合并；'
@@ -56,6 +58,8 @@ class CaptureClient(ResponsesClient):
             + encode({'origin_ms': manifest['origin_ms'], 'doors': manifest['doors']}))
 
     def chat(self, messages, *args, **kwargs):
+        if self.before_request:
+            self.before_request()
         labels = {part.get('text', '') for message in messages if isinstance(message.get('content'), list)
                   for part in message['content']}
         references = []
@@ -81,10 +85,15 @@ def location_at(manifest, ms):
 
 class AutomaticRecorder:
     def __init__(self, sessions, *, client_factory=CaptureClient, slice_reader=read_slice,
-                 settings_factory=auto_settings):
+                 settings_factory=auto_settings, recognition=None):
         self.sessions, self.store = sessions, sessions.store
         self.client_factory, self.slice_reader = client_factory, slice_reader
         self.settings_factory = settings_factory
+        self.recognition = recognition
+
+    def check_recognition(self, generation):
+        if self.recognition:
+            self.recognition.check(generation)
 
     def context(self, manifest, root):
         path = root / 'inventory-context.json'
@@ -117,7 +126,7 @@ class AutomaticRecorder:
         write_json(path, value)
         return value
 
-    def analyze(self, manifest, root, context):
+    def analyze(self, manifest, root, context, recognition_generation=None):
         path = root / 'analysis.json'
         if path.exists():
             value = read_json(path)
@@ -126,6 +135,8 @@ class AutomaticRecorder:
             return value['state']
         settings = self.settings_factory()
         client = self.client_factory(settings, root, manifest)
+        if isinstance(client, CaptureClient):
+            client.before_request = lambda: self.check_recognition(recognition_generation)
         state = {'model': settings.model, 'objects': copy.deepcopy(context['seeds']), 'events': [],
                  'proposals': [], 'baselines': [], 'conflicts': [], 'summaries': []}
         plan = {'frames': manifest['frames'], 'slices': plan_slices(manifest['frames'])}
@@ -133,6 +144,7 @@ class AutomaticRecorder:
         if len(plan['slices']) > 32:
             raise ValueError('Session exceeds the analysis slice budget')
         for part in plan['slices']:
+            self.check_recognition(recognition_generation)
             packet_path = root / 'slices' / part['id'] / 'packet.json'
             before_hash = digest(state)
             if packet_path.exists():
@@ -143,6 +155,7 @@ class AutomaticRecorder:
                 packet = Packet.model_validate(record['packet']).model_dump()
             else:
                 packet, trace = self.slice_reader(client, plan, part, state, root)
+                self.check_recognition(recognition_generation)
                 packet = Packet.model_validate(packet).model_dump()
                 write_json(packet_path, {'before_sha256': before_hash, 'model': settings.model,
                     'version': VERSION, 'packet': packet, 'tools': trace})
@@ -276,7 +289,10 @@ class AutomaticRecorder:
         identity_map[oid] = (receipt['added_item_ids'] + receipt['updated_item_ids'] + receipt['removed_item_ids'])[0]
         return receipt
 
-    def process(self, identity):
+    def process(self, identity, *, recognition_generation=None):
+        if self.recognition and recognition_generation is None:
+            recognition_generation = self.recognition.snapshot()['generation']
+        self.check_recognition(recognition_generation)
         session = self.sessions.get(identity)
         root = Path(session['root'])
         manifest = read_json(root / 'session.json')
@@ -288,7 +304,13 @@ class AutomaticRecorder:
             if hashlib.sha256(inside_path(root, frame['file']).read_bytes()).hexdigest() != frame['sha256']:
                 raise ValueError('Session evidence hash mismatch')
         context = self.context(manifest, root)
-        state = self.analyze(manifest, root, context)
+        state = self.analyze(manifest, root, context, recognition_generation)
+        with recognition_lock(self.recognition):
+            self.check_recognition(recognition_generation)
+            self.commit(manifest, root, state, context)
+
+    def commit(self, manifest, root, state, context):
+        identity = manifest['id']
         reasons = self.check(manifest, state, context)
         if reasons:
             self.sessions.update(identity, 'pending', {'reasons': reasons, 'objects': len(state['objects'])})
@@ -322,15 +344,20 @@ class AutomaticRecorder:
 
     def run(self, stopped):
         while not stopped.is_set():
-            with self.store.db.transaction() as db:
-                row = db.execute("SELECT id FROM automatic_sessions WHERE state='queued' ORDER BY created_at,id LIMIT 1").fetchone()
-                if row:
-                    db.execute("UPDATE automatic_sessions SET state='processing' WHERE id=?", (row['id'],))
+            row = None
+            generation = None
+            with recognition_lock(self.recognition):
+                if not self.recognition or self.recognition.enabled:
+                    generation = self.recognition.generation if self.recognition else None
+                    with self.store.db.transaction() as db:
+                        row = db.execute("SELECT id FROM automatic_sessions WHERE state='queued' ORDER BY created_at,id LIMIT 1").fetchone()
+                        if row:
+                            db.execute("UPDATE automatic_sessions SET state='processing' WHERE id=?", (row['id'],))
             if not row:
                 stopped.wait(.5)
                 continue
             try:
-                self.process(row['id'])
+                self.process(row['id'], recognition_generation=generation)
             except Conflict as exc:
                 self.sessions.update(row['id'], 'pending', {'reasons': [str(exc)]})
             except Exception as exc:

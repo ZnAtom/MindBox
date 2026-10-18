@@ -48,7 +48,9 @@ VS Code CanMV 仍需连接开发板并运行 `code/device/k230/k230_key_door.py`
 
 本地语音联调可用 `code/backend/.venv/bin/python code/backend/scripts/seed_voice_test_data.py` 写入四件带抽屉位置的测试物品（坚果、牛奶、鱼油、巧克力）。脚本按 `MindBox voice-test-seed` 标记，重复运行只会跳过已有测试记录；它会把当前柜体标为已知测试基线，不代表摄像头实际识别结果。
 
-后端自动保存开柜前2秒、操作全过程和合柜后2秒的约8fps JPEG及时间轴，识别在另一线程运行；取消原180秒截断，单次仍有512MiB归档上限。数据库仍为`var/mind-box.sqlite3`，原始帧在`var/mind-box-sessions/`，提交证据在`var/mind-box-assets/`。备份时三者都要保留；现有`db backup`只包含数据库和提交证据，不包含全部会话原帧。
+物品识别默认关闭。在主界面场景右上角点击眼睛扫描图标开启，再完整打开、关闭一次抽屉。`GET /api/recording/state` 的 `recognition.enabled` 是统一状态，`POST /api/recording/control` 接受 `{"enabled": true}` 或 `{"enabled": false}`；刷新网页不重置开关，重启后端恢复关闭。开启时已打开的抽屉需先关闭，下一次开门才开始采集。关闭会中止当前采集、将旧队列保留为待核对，并阻止尚未提交的视频识别结果写入库存；已发出的远端请求无法撤回。再次开启不会自动补跑旧队列，需开启后手动重试。识别码开合检测和前端动画一直运行，手动提问、中文唤醒和提醒不受此开关影响；关闭期间及旧会话的收纳语音不会在下次开启时补跑。
+
+开启识别后，后端自动保存开柜前2秒、操作全过程和合柜后2秒的约8fps JPEG及时间轴，识别在另一线程运行；取消原180秒截断，单次仍有512MiB归档上限。数据库仍为`var/mind-box.sqlite3`，原始帧在`var/mind-box-sessions/`，提交证据在`var/mind-box-assets/`。备份时三者都要保留；现有`db backup`只包含数据库和提交证据，不包含全部会话原帧。
 
 ### 统一语音、文字与提醒
 

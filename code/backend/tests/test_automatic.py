@@ -1,6 +1,7 @@
 import io
 import json
 import time
+from unittest.mock import Mock
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from app.config import Settings
 from app.database import Conflict
 from app.server import create_app
 from app.store import Store
+from app.recognition import RecognitionControl
 
 
 def jpeg():
@@ -74,13 +76,13 @@ def packet(kind='add', *, oid='obj-001', existing=False):
         'explanation': '完整边界和放稳证据', 'support': 'high'}], 'uncertainties': []}
 
 
-def recorder(sessions, value, calls=None):
+def recorder(sessions, value, calls=None, **kwargs):
     def reader(*args):
         if calls is not None:
             calls.append(1)
         return value, []
     return AutomaticRecorder(sessions, slice_reader=reader, client_factory=lambda *args: None,
-        settings_factory=lambda: Settings('unused', 'fake', 'offline-test'))
+        settings_factory=lambda: Settings('unused', 'fake', 'offline-test'), **kwargs)
 
 
 def test_capture_keeps_preroll_whole_operation_and_tail_on_disk(tmp_path):
@@ -211,6 +213,7 @@ def test_api_real_inventory_evidence_edit_and_review(tmp_path):
         assert 'root' not in client.get('/api/recording/state').text
         detail = client.get('/api/recording/sessions/' + session['id']).json()
         assert client.get(detail['frames'][0]['url']).status_code == 200
+        assert client.post('/api/recording/control', json={'enabled': True}).status_code == 200
         assert client.post('/api/recording/sessions/' + session['id'] + '/retry').status_code == 409
 
 
@@ -293,6 +296,94 @@ def test_incomplete_session_review_cannot_force_automatic_commit(tmp_path):
         identity, _ = app.state.sessions.create('cabinet-01')
         app.state.sessions.update(identity, 'pending', {'reasons': ['capture_process_interrupted']})
         base = '/api/recording/sessions/' + identity
+        assert client.post('/api/recording/control', json={'enabled': True}).status_code == 200
         assert client.post(base + '/retry').status_code == 409
         assert client.post(base + '/dismiss').json()['state'] == 'dismissed'
         assert not client.get('/api/inventory').json()['items']
+
+
+def test_recognition_control_defaults_off_and_does_not_replay_old_queued_sessions(tmp_path):
+    app = create_app(tmp_path / 'control.sqlite3', workers=False)
+    with TestClient(app) as client:
+        assert client.get('/api/recording/state').json()['recognition']['enabled'] is False
+        assert client.post('/api/recording/control', json={'enabled': 'false'}).status_code == 422
+        assert client.post('/api/recording/control', json={'enabled': True},
+                           headers={'origin': 'https://external.example'}).status_code == 403
+        session = capture_session(app.state.sessions)
+        retry = '/api/recording/sessions/' + session['id'] + '/retry'
+        assert client.post(retry).status_code == 409
+        assert client.post('/api/recording/control', json={'enabled': True}).json() == {'enabled': True, 'generation': 1}
+        assert app.state.sessions.get(session['id'])['state'] == 'pending'
+        assert client.post(retry).json()['state'] == 'queued'
+        # Repeating the same setting must not cancel a valid queued operation.
+        assert client.post('/api/recording/control', json={'enabled': True}).json()['generation'] == 1
+        assert app.state.sessions.get(session['id'])['state'] == 'queued'
+        assert client.post('/api/recording/control', json={'enabled': False}).json()['generation'] == 2
+        assert app.state.sessions.get(session['id'])['detail']['reasons'] == ['recognition_disabled']
+        assert client.get('/api/inventory').json()['inventory_revision'] == 0
+
+
+def test_disabled_recognition_never_loads_frames_and_enable_waits_for_fresh_cycle(tmp_path):
+    _, sessions = services(tmp_path)
+    control = RecognitionControl()
+    capture = BridgeCapture(sessions, recognition=control)
+    door = {'cabinet_id': 'cabinet-01', 'connected': True, 'state': {
+        'source': 'vision', 'boot_id': 'board', 'open': [True, False, False], 'known': [True] * 3}}
+    cache = {'epoch': 'e', 'frames': [{'generation': 1, 'received_ms': 0,
+                                     'received_unix_ms': round(time.time() * 1000)}]}
+    capture.step(door, cache, lambda _: pytest.fail('Disabled recognition must not download frames'))
+    assert sessions.list() == []
+    control.set_enabled(True)
+    capture.step(door, cache, lambda _: pytest.fail('An already open drawer must wait for a full new cycle'))
+    assert capture.status['state'] == 'waiting_for_close'
+    door['state']['open'] = [False] * 3
+    capture.step(door, cache, lambda _: jpeg())
+    door['state']['open'] = [True, False, False]
+    capture.step(door, cache, lambda _: jpeg())
+    assert capture.active
+    control.set_enabled(False)
+    capture.step(door, cache, lambda _: pytest.fail('Disabling must stop capture'))
+    assert capture.active is None
+    assert sessions.list()[0]['state'] == 'pending'
+    assert 'recognition_disabled' in sessions.list()[0]['detail']['reasons']
+
+
+def test_disabled_worker_does_not_claim_queue_or_call_model(tmp_path):
+    store, sessions = services(tmp_path)
+    session = capture_session(sessions)
+    calls = []
+    worker = recorder(sessions, packet(), calls, recognition=RecognitionControl())
+    stopped = Mock()
+    stopped.is_set.side_effect = [False, True]
+    worker.run(stopped)
+    assert sessions.get(session['id'])['state'] == 'queued'
+    with pytest.raises(Conflict, match='recognition_disabled'):
+        worker.process(session['id'])
+    assert calls == []
+    assert store.get_inventory_snapshot()['inventory_revision'] == 0
+    worker.recognition.set_enabled(True)
+    worker.process(session['id'])
+    assert calls == [1]
+    assert store.get_inventory_snapshot()['inventory_revision'] == 1
+
+
+@pytest.mark.parametrize('reenable', [False, True])
+def test_disabling_during_model_request_discards_result_even_after_reenable(tmp_path, reenable):
+    store, sessions = services(tmp_path)
+    session = capture_session(sessions)
+    control = RecognitionControl()
+    control.set_enabled(True)
+    calls = []
+    def reader(*args):
+        calls.append(1)
+        control.set_enabled(False)
+        if reenable:
+            control.set_enabled(True)
+        return packet(), []
+    worker = AutomaticRecorder(sessions, recognition=control, slice_reader=reader,
+        client_factory=lambda *args: None, settings_factory=lambda: Settings('unused', 'fake', 'test'))
+    with pytest.raises(Conflict, match='recognition_disabled'):
+        worker.process(session['id'])
+    assert calls == [1]
+    assert store.get_inventory_snapshot()['inventory_revision'] == 0
+    assert not (Path(session['root']) / 'receipts.json').exists()

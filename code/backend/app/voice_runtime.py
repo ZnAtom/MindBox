@@ -28,14 +28,17 @@ def strip_wake_word(text, word):
 
 
 class VoiceRuntime:
-    def __init__(self, assistant, sessions, bridge):
+    def __init__(self, assistant, sessions, bridge, *, recognition=None):
         self.assistant, self.sessions = assistant, sessions
         self.bridge = bridge.rstrip('/')
         self.status = {'connected': False}
+        self.recognition = recognition
 
     def collect(self, recordings, download):
         for audio in recordings:
             if not audio.get('complete') or audio.get('cabinet_id') != self.assistant.cabinet_id:
+                continue
+            if audio.get('origin') != 'wake' and self.recognition and not self.recognition.enabled:
                 continue
             with self.assistant.store.db.connect() as db:
                 if db.execute('SELECT 1 FROM voice_interactions WHERE audio_session_id=?',
@@ -52,6 +55,8 @@ class VoiceRuntime:
                 continue
             candidates = []
             for session in self.sessions.list(limit=1000):
+                if self.recognition and session['created_at'] < self.recognition.enabled_since:
+                    continue
                 path = Path(session['root']) / 'session.json'
                 if not path.exists():
                     continue
@@ -77,7 +82,10 @@ class VoiceRuntime:
         with self.assistant.store.db.connect() as db:
             row = db.execute('SELECT v.* FROM voice_interactions v LEFT JOIN automatic_sessions s ON s.id=v.session_id '
                 "WHERE (v.origin='wake' AND v.state='queued') OR "
-                "(v.state='waiting_inventory' AND s.state='committed') ORDER BY v.created_at LIMIT 1").fetchone()
+                "(v.state='waiting_inventory' AND s.state='committed' AND ? AND s.created_at>=?) "
+                "ORDER BY v.created_at LIMIT 1",
+                (not self.recognition or self.recognition.enabled,
+                 self.recognition.enabled_since if self.recognition else '')).fetchone()
         if not row:
             return False
         identity = row['id']
