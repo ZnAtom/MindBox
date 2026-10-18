@@ -208,3 +208,53 @@ def test_unified_http_service_search_reminders_and_receipts(tmp_path):
         assert client.post('/api/reminders/deliveries/' + delivery['id'] + '/ack',
             json={'channel': 'voice', 'kind': 'played'}).json()['state'] == 'played'
         assert client.get('/api/voice/health').status_code == 200
+
+
+@pytest.mark.parametrize('transcript', ['你好小盒，坚果在哪里？', '你好小盒坚果在哪里？', '你好，小盒，坚果在哪里？',
+                                       '你好小河，坚果在哪里？'])
+def test_wake_speech_queries_real_inventory_without_a_video_session(store, tmp_path, transcript):
+    service = assistant(store, [('search_inventory', {'query': '坚果'})])
+    service.output = tmp_path / 'voice'
+    class Transcriber:
+        def transcribe(self, payload):
+            assert payload == b'test audio'
+            return {'text': transcript, 'segments': []}
+    service.transcriber = Transcriber()
+    sessions = Sessions(store, tmp_path / 'sessions')
+    runtime = VoiceRuntime(service, sessions, 'http://unused.invalid')
+    metadata = {'complete': True, 'origin': 'wake', 'session_id': 'audio-wake',
+        'cabinet_id': 'cabinet-01', 'wake_word': '你好小盒', 'stream_started_unix_ms': 1002000}
+    runtime.collect([metadata], lambda _: b'test audio')
+    runtime.collect([metadata], lambda _: pytest.fail('duplicate download'))
+    with store.db.connect() as db:
+        row = db.execute('SELECT * FROM voice_interactions').fetchone()
+        assert (row['origin'], row['state'], row['session_id']) == ('wake', 'queued', None)
+    assert runtime.process_next()
+    assert not runtime.process_next()
+    with store.db.connect() as db:
+        row = db.execute('SELECT * FROM voice_interactions').fetchone()
+        assert row['state'] == 'completed'
+        assert row['transcript'] == '坚果在哪里？'
+        result = json.loads(row['result_json'])
+        assert result['inventory']['items'][0]['name'] == '坚果'
+        assert result['inventory']['items'][0]['drawer'] == '第一层'
+        assert not list(db.execute('PRAGMA foreign_key_check'))
+    assert sessions.list() == []
+
+
+def test_keyword_only_does_not_call_remote_ai(store, tmp_path):
+    service = assistant(store, [])
+    service.output = tmp_path / 'voice'
+    service.client.chat = lambda *args, **kwargs: pytest.fail('No question must not call remote AI')
+    class Transcriber:
+        def transcribe(self, payload):
+            return {'text': '你好小盒。', 'segments': []}
+    service.transcriber = Transcriber()
+    runtime = VoiceRuntime(service, Sessions(store, tmp_path / 'sessions'), 'http://unused.invalid')
+    runtime.collect([{'complete': True, 'origin': 'wake', 'session_id': 'audio-keyword',
+        'cabinet_id': 'cabinet-01', 'wake_word': '你好小盒', 'stream_started_unix_ms': 1002000}], lambda _: b'audio')
+    assert runtime.process_next()
+    with store.db.connect() as db:
+        row = db.execute('SELECT state,result_json FROM voice_interactions').fetchone()
+        assert row['state'] == 'completed'
+        assert json.loads(row['result_json'])['status'] == 'no_speech'

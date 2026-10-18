@@ -251,11 +251,12 @@ class CameraFrames:
 class DoorServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, state, simulate=False, audio=None):
+    def __init__(self, address, state, simulate=False, audio=None, wake=None):
         super().__init__(address, DoorHandler)
         self.state, self.simulate = state, simulate
         self.camera = CameraFrames()
         self.audio = audio
+        self.wake = wake
         self.vision = None
         self.simulation_lock = threading.Lock()
         self.simulation_boot = uuid.uuid4().hex[:16]
@@ -300,6 +301,9 @@ class DoorHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/audio/state":
             self.json_response(200, self.server.audio.snapshot() if self.server.audio else
                                {"enabled": False, "status": "disabled", "session": None, "last": None, "error": None})
+        elif self.path == "/api/audio/wake/state":
+            self.json_response(200, self.server.wake.snapshot() if self.server.wake else
+                               {"enabled": False, "status": "disabled", "word": None, "event": 0})
         elif self.path == "/api/audio/sessions":
             self.json_response(200, {"sessions": self.server.audio.completed_sessions() if self.server.audio else []})
         elif re.fullmatch(r"/api/audio/sessions/audio-[a-zA-Z0-9]+/audio.wav", self.path):
@@ -393,6 +397,23 @@ class DoorHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.close_connection = True
+        if self.path == '/api/audio/wake/control' and self.server.wake:
+            try:
+                origin = self.headers.get('Origin')
+                if origin and urlsplit(origin).hostname not in ('localhost', '127.0.0.1', '::1'):
+                    self.json_response(403, {'error': 'Local origin required'})
+                    return
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 1024:
+                    raise ValueError('Invalid request size')
+                self.connection.settimeout(3)
+                value = json.loads(self.rfile.read(length))
+                if not isinstance(value, dict):
+                    raise ValueError('Expected an object')
+                self.json_response(200, self.server.wake.control(value))
+            except (ValueError, AttributeError, OSError) as error:
+                self.json_response(400, {'error': str(error)})
+            return
         if self.path != "/api/doors/simulate" or not self.server.simulate:
             self.json_response(404, {"error": "Simulation is disabled"})
             return
@@ -468,27 +489,40 @@ def main():
     parser.add_argument("--record-audio", action="store_true", help="Record the PC microphone while doors are open")
     parser.add_argument("--audio-device", help="Input device ID or name; default is the system input")
     parser.add_argument("--audio-output", default=str(Path(__file__).resolve().parent / "recordings"))
-    parser.add_argument("--audio-tail", type=float, default=2, help="Seconds after all drawers close (0-30)")
+    parser.add_argument("--audio-tail", type=float, default=0,
+                        help="Seconds after close confirmation before stopping audio (default: 0)")
     parser.add_argument("--list-audio-devices", action="store_true", help="List PC microphones and exit")
+    parser.add_argument('--wake-word', help='Enable local Chinese wake detection with this phrase')
+    parser.add_argument('--wake-model-dir', help='Directory prepared by download_wake_models.py')
     args = parser.parse_args()
     if args.simulate and args.door_source == "vision":
         parser.error("--simulate cannot be combined with --door-source vision")
     if args.list_audio_devices:
         print(json.dumps(input_devices(), ensure_ascii=False, indent=2))
         return
-    if args.record_audio:
+    if args.record_audio or args.wake_word:
         sounddevice_module()
     device = int(args.audio_device) if args.audio_device and args.audio_device.isdecimal() else args.audio_device
     state, stopped = DoorState(args.cabinet), threading.Event()
+    hub = wake = None
+    if args.wake_word:
+        from pc_wake import SharedMicrophone, WakeRecorder
+        hub = SharedMicrophone(device)
+        options = {'directory': args.wake_model_dir} if args.wake_model_dir else {}
+        wake = WakeRecorder(state, hub, args.audio_output, word=args.wake_word, cabinet=args.cabinet, **options)
     audio = DoorAudioRecorder(state, args.audio_output, enabled=args.record_audio,
-                              device=device, tail_seconds=args.audio_tail)
-    server = DoorServer(("127.0.0.1", args.port), state, args.simulate, audio=audio)
+                              device=device, tail_seconds=args.audio_tail,
+                              source_factory=hub.subscribe if hub else None)
+    server = DoorServer(("127.0.0.1", args.port), state, args.simulate, audio=audio, wake=wake)
     if args.door_source == "vision":
         from pc_vision import VisionDoors
         server.vision = VisionDoors(state, server.camera, open_confirm_seconds=args.vision_open_confirm,
                                    close_delay_seconds=args.vision_close_delay)
         server.vision.start()
     audio.start()
+    if hub:
+        hub.start()
+        wake.start()
     if args.simulate:
         def heartbeat():
             while not stopped.is_set():
@@ -514,7 +548,13 @@ def main():
             finally:
                 audio.stop()
         finally:
-            server.server_close()
+            try:
+                if wake:
+                    wake.stop()
+                if hub:
+                    hub.stop()
+            finally:
+                server.server_close()
 
 
 if __name__ == "__main__":

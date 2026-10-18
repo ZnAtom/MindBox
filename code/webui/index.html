@@ -46,11 +46,12 @@
       </aside>
       <button class="icon-button panel-reopen" id="expand-panel" aria-label="展开右侧面板" data-tooltip="展开设备面板" aria-expanded="false" aria-controls="side-panel" hidden><i data-lucide="panel-right-open"></i><span class="activity-dot" hidden></span></button>
     </main>
-    <footer class="bottom-bar"><span class="clock" id="clock"></span><button class="command-trigger" id="command-button"><i data-lucide="mic"></i><span>问问 mind box</span></button><span class="bottom-status"><i data-lucide="hard-drive"></i><span>本地预览</span></span></footer>
+    <footer class="bottom-bar"><span class="clock" id="clock"></span><button class="command-trigger" id="command-button"><i data-lucide="mic"></i><span id="wake-indicator">问问 mind box</span></button><span class="bottom-status"><i data-lucide="hard-drive"></i><span>本地预览</span></span></footer>
     <section class="command-panel" id="command-panel" aria-label="文字交互" hidden>
       <div class="command-head"><span><i data-lucide="message-circle"></i>问问 mind box</span><span class="muted" id="voice-status">点击麦克风提问</span><button class="icon-button small" id="close-command" aria-label="关闭输入"><i data-lucide="x"></i></button></div>
       <form id="command-form"><button class="voice-button" id="record-command" type="button" aria-label="开始录音" data-tooltip="开始录音"><i data-lucide="mic"></i></button><input id="command-input" autocomplete="off" aria-label="输入问题或提醒" placeholder="询问物品、记录日期或设置提醒" maxlength="200" /><button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i></button></form>
       <div class="command-response" id="command-response" aria-live="polite" hidden></div>
+      <button class="icon-button small" id="play-voice-answer" aria-label="播放回答" title="播放回答" hidden><i data-lucide="volume-2"></i></button>
     </section>
     <dialog id="modal" aria-labelledby="modal-title"><div class="modal-heading"><h2 id="modal-title"></h2><button class="icon-button small" id="close-modal" aria-label="关闭窗口"><i data-lucide="x"></i></button></div><div id="modal-body"></div></dialog>
     <div class="toast" id="toast" role="status" hidden></div>

@@ -21,6 +21,7 @@ WEB_PORT="${MIND_BOX_WEB_PORT:-5173}"
 AGENT_PORT="${MIND_BOX_AGENT_PORT:-8788}"
 export MIND_BOX_AGENT_PORT="$AGENT_PORT"
 export MIND_BOX_OWNER_ORIGINS="${MIND_BOX_OWNER_ORIGINS:-http://127.0.0.1:$WEB_PORT,http://localhost:$WEB_PORT}"
+WAKE_WORD="${MIND_BOX_WAKE_WORD:-你好小盒}"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -106,8 +107,12 @@ start_all() {
   require_file "$DEVICE_PY"
   command -v "$WEB_NPM" >/dev/null 2>&1 || fail "npm was not found; set NPM_BIN or install Node.js"
 
+  local wake_args=(--wake-word "$WAKE_WORD")
+  if [[ "${MIND_BOX_WAKE_ENABLED:-1}" == "0" ]]; then
+    wake_args=(--wake-word '')
+  fi
   start_process bridge "$DEVICE_DIR" "$DEVICE_PY" -u pc_door_bridge.py \
-    --port "$BRIDGE_PORT" --door-source vision --record-audio
+    --port "$BRIDGE_PORT" --door-source vision --record-audio --audio-tail 0 "${wake_args[@]}"
   start_process backend "$BACKEND_DIR" "$BACKEND_PY" -m app.server --port "$BACKEND_PORT"
   wait_http backend "http://127.0.0.1:$BACKEND_PORT/api/voice/health"
   start_process agent "$BACKEND_DIR" "$BACKEND_PY" -m app.agent_server --port "$AGENT_PORT"

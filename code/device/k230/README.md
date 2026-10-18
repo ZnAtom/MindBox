@@ -66,7 +66,7 @@ Windows默认查找`%APPDATA%/Code/User/globalStorage/kendryte747.canmv-vscode`�
 K230 只发送门状态，声音来自电脑系统默认输入设备，可以是内置麦克风或外接麦克风。无需在浏览器申请麦克风权限，也不要求网页保持打开。macOS 首次录音会为启动 Python 的应用申请麦克风权限，请允许；首次等待授权会延迟录音开始，后续仍有设备启动延迟，不保证保留开门瞬间的第一个字。
 
 - 任意一层打开时开始录音；多个抽屉打开时共用一段。
-- 最后一层关闭后继续两秒，再停止并保存；两秒内重新打开则继续原会话。
+- 识别码连续消失约两秒、视觉确认最后一层关闭后立即停止并保存；确认前重新出现则继续原会话。
 - 音频从开门事件开始，**没有开门前十秒的音频缓存**。视频仍持续采集并缓存最近十秒。
 - 输出为 16kHz、单声道、16-bit PCM WAV，保存在 `code/device/k230/recordings/audio-<会话编号>/audio.wav`。同目录 `session.json` 保存输入设备、开关门时间、启动延迟、时长和完整性；每次使用新目录，不覆盖上次。
 - 断线/心跳超时、板端重启或服务退出会结束录音，标记 `incomplete`。输入溢出也不会标记完整。单次最多录一小时，达到上限后须关闭所有抽屉再开启下一段。
@@ -76,7 +76,7 @@ K230 只发送门状态，声音来自电脑系统默认输入设备，可以是
 
 ```sh
 code/device/k230/.venv/bin/python code/device/k230/pc_door_bridge.py --list-audio-devices
-code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --record-audio --audio-device 0 --audio-tail 2
+code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --record-audio --audio-device 0 --audio-tail 0
 ```
 
 设备编号以本机输出为准，也可传输入设备名称。`--audio-output <目录>` 更改保存目录。省略 `--record-audio` 可只启动原有的视频/门状态功能。录音文件已加入 Git 忽略；程序不会自动清理历史录音。采集使用 [sounddevice 的 RawInputStream](https://python-sounddevice.readthedocs.io/en/0.5.5/api/raw-streams.html)，与 USB 接收运行在不同线程。
@@ -97,7 +97,7 @@ code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --door-s
 1. 打开 http://127.0.0.1:5173/vision.html （主界面设置中的“视觉识别”也能进入），点击“打印标记”。A4、原始比例 100%，关闭打印页眉页脚。三张标记的黑色方块设计为边长 50 mm，周围白边须保留，打印后用尺确认比例。原来的 1/2/3 标记可复用，参考码 0 不再使用。
 2. **1 / 2 / 3** 分别朝上固定在上 / 中 / 下层抽屉上，选择不容易被手和物品遮挡的位置。确认关上后整张码被隐藏，拉开后露出完整黑边和白边。每个编号只出现一次；画面中的边长至少约 28 像素，实际建议更大并保证清晰、无反光。
 3. 无需关闭位置标定。识别到唯一编号持续约 0.3 秒且至少 3 张检测帧后，网页打开对应层并开始电脑录音。识别到另一个唯一编号并确认后，按单抽屉约定切换开合层，不产生两层同时打开的状态。
-4. 短暂丢码保持打开；连续 2 秒的新画面均未识别到抽屉码后，确认全部关闭。随后电脑录音仍多保留 2 秒，因此码消失到录音结束合计约 4 秒。首次启动或重连也需观察，再确认开门或全部关闭。
+4. 短暂丢码保持打开；连续 2 秒的新画面均未识别到抽屉码后，确认全部关闭并立即停止电脑录音。首次启动或重连也需观察，再确认开门或全部关闭。
 
 `--vision-open-confirm`（默认 0.3）和 `--vision-close-delay`（默认 2）调整上述时间，必须满足 `0 < 开门确认 < 关门延时 <= 30` 秒。每秒最多分析约 10 张最新画面，工作线程不阻塞 USB 接收。旧几何阈值参数、标定 API 和标定文件读取均已移除，已有 `.vision-calibration.json` 不再生效。
 
@@ -108,6 +108,24 @@ code/device/k230/.venv/bin/python -u code/device/k230/pc_door_bridge.py --door-s
 识别页通过 `/api/camera/mjpeg` 持续显示原始视频，与标记识别独立运行；每 200 毫秒读取识别状态并叠加角点，超过 500 毫秒的检测标注自动清除。页脚分别显示相机接收和识别帧率，识别速度不会限制视频刷新。
 
 `/api/vision/state` 返回 `mode=marker_visibility`、每层 `open` / `known`、可见标记的 `corners`、`pending_drawer`、`pending_remaining_ms`、确认时间，以及 `camera_connected`、`camera_epoch`、`camera_fps`、`processing_fps`、`processing_ms`、`observation_age_ms`；后者是检测所用画面距电脑当前时间的毫秒数。`/api/vision/preview.jpg` 保留为带编号的单张预览兼容接口，识别页不轮询它。`/api/vision/markers/1.png` 至 `3.png` 是打印图片。视觉模式仅有一个权威门状态，板端 KEY 心跳不会覆盖它。
+
+## 中文语音唤醒（电脑麦克风）
+
+在仓库根目录准备依赖和本地模型（仅首次需要联网下载）：
+
+```sh
+code/device/k230/.venv/bin/python -m pip install -r code/device/k230/requirements-wake.txt
+code/device/k230/.venv/bin/python code/device/k230/download_wake_models.py
+./code/mindbox.sh restart
+```
+
+打开 http://127.0.0.1:5173/ 并允许网页播放声音。底部显示“你好小盒”时，可以说“你好小盒，坚果在哪里？”，也可以先说唤醒词，再在五秒内开始提问。设置中“中文唤醒”可临时关闭/开启；重启默认开启。唤醒时弹出提问面板，说话结束静音约 1.2 秒后提交，唤醒后单次最多录 25 秒；只唤醒而不提问会自动放弃。回答通过浏览器中文语音合成播放；浏览器阻止自动播报时可点回答下方的扬声器按钮。
+
+本地 sherpa-onnx 中文关键词模型持续监听，Silero VAD 判断说话结束，faster-whisper 转写，随后复用现有远端语义工具查询 SQLite、记录日期或设置提醒。待机音频只保留最近两秒内存缓冲，唤醒提问才保存 WAV；待机声音不发给远端。唤醒录音与开门录音共用一个系统麦克风流，但分别存档。开门期间优先收纳录音，已确认关门后立即停录；唤醒提问不依赖 K230 在线或视频会话。网页播报、按钮提问时临时暂停唤醒，浏览器关闭后暂停租约最长十五秒自动失效。
+
+默认词可通过启动环境变量 `MIND_BOX_WAKE_WORD='你好小盒'` 修改（限模型可编码的中文词）；`MIND_BOX_WAKE_ENABLED=0 ./code/mindbox.sh restart` 关闭启动时的唤醒。手动运行桥接需加 `--wake-word '你好小盒'`；`--wake-model-dir` 指定下载模型目录。模型放在忽略版本管理的 `models/wake/`，`sources.json` 记录官方下载地址和文件 SHA-256。此版是单次唤醒、单次交代，不保持多轮对话上下文。
+
+`GET /api/audio/wake/state` 返回 `status/word/event/pending/error`；`POST /api/audio/wake/control` 接受 `enabled` 或 `{client, paused}`，后者为每个网页独立续期的暂停租约；后端完成 `pending` 后回传 `{completed: audio_session_id}`。完整唤醒 WAV 通过原有 `/api/audio/sessions` 接口转交后端，其元数据 `origin=wake`，不等待视频库存提交。语音问答使用原有后端密钥配置，唤醒模型本身不需要 API 密钥。
 
 ## 缓存与接口
 
@@ -126,7 +144,7 @@ HTTP 只监听 `127.0.0.1:8765`；Vite 将 `/api/doors`、`/api/camera`、`/api/
 
 缓存按电脑单调时钟的**收到帧时间**保留最近 10 秒，同时上限 64 MiB、1200 帧；达到任意上限都淘汰最旧帧。因此启动不足 10 秒、断流或高码率下，实际覆盖可能不足 10 秒，应检查 `buffered_seconds`。`received_unix_ms` 便于和其他电脑事件关联，不是相机曝光时间。`frame_id` 来自扩展，`generation` 是电脑服务内递增编号；重连/板端重新启动会清空缓存并更换 `epoch`。
 
-后端持续读取缓存，并在开门时归档**前2秒＋全过程＋关门后2秒**的约8fps JPEG与时间轴；桥接自身仍保留10秒滚动窗口，不生成MP4。电脑音频在开门时启动、关门后2秒结束。完整WAV由`/api/audio/sessions`列出，经`/api/audio/sessions/<id>/audio.wav`下载到同一视频会话；统一后端等待库存提交后转写、理解讲话和设置提醒。运行方式见[后端说明](../../backend/README.md#统一语音文字与提醒)。
+后端持续读取缓存，并在开门时归档**前2秒＋全过程＋关门后2秒**的约8fps JPEG与时间轴；桥接自身仍保留10秒滚动窗口，不生成MP4。电脑音频在开门时启动、视觉确认关门后立即结束。完整WAV由`/api/audio/sessions`列出，经`/api/audio/sessions/<id>/audio.wav`下载到同一视频会话；统一后端等待库存提交后转写、理解讲话和设置提醒。运行方式见[后端说明](../../backend/README.md#统一语音文字与提醒)。
 
 7 秒没有画面或门心跳即显示离线，不以最后一帧冒充实时画面。USB 预览流只有图像，声音来自电脑麦克风。二者在同一服务中记录电脑单调时钟，但音频起点是打开输入流后的估计值，未做设备级同步校准，尚不生成带音轨的视频。本轮不调用识别模型，不写正式库存；正式处理接口仍以 `../../doc/data-contract.md` 为准。
 
@@ -140,7 +158,7 @@ python3 -m unittest discover -s code/device/k230 -p 'test_*.py' -v
 
 测试覆盖多击/消抖、门状态去重/重启、SSE 恢复、十秒淘汰、字节/帧数上限、JPEG 读取过期、MJPEG 更新/断流，以及 USB 图像和脚本输出交错。`pc_door_bridge.py --simulate --port 8766` 只模拟门状态，不伪造相机画面；正式桥接不开放模拟开门写接口。
 
-电脑录音另有多层共享、关门延时、延时内重开、断线/重启、权限失败、WAV 内容、录音上限和服务退出测试。2026-10-17 使用模拟门事件和真实 MacBook Pro Microphone 验证：16kHz 单声道 WAV 包含非零声音采样，关门约两秒停止，音频溢出为零；尚未完成这轮音频与 K230 实体 KEY 的联合实测。
+电脑录音另有多层共享、关门确认、零尾音、断线/重启、权限失败、WAV 内容、录音上限和服务退出测试。2026-10-17 使用模拟门事件和真实 MacBook Pro Microphone 验证：16kHz 单声道 WAV 包含非零声音采样，音频溢出为零；尚未完成这轮音频与 K230 实体 KEY 的联合实测。
 
 视觉测试使用合成 JPEG 和真实 OpenCV 标记检测，覆盖三个打印编号回读、可见开门/消失关门的确认、短暂遮挡、单层切换、多码冲突、冻结画面、检测中断、重连，以及门状态与录音的联动。无视觉依赖时跳过该组测试；完整验证请使用安装好上述依赖的 `.venv/bin/python`。这些测试不能替代贴好标记后的真实柜体验证。
 
