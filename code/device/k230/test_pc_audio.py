@@ -32,7 +32,7 @@ class AudioTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.sources = []
         self.recorder = DoorAudioRecorder(None, self.temporary.name, enabled=True,
-            clock=lambda: self.now, source_factory=self.source)
+            clock=lambda: self.now, source_factory=self.source, tail_seconds=2)
         self.addCleanup(self.recorder.stop)
         output = redirect_stdout(io.StringIO())
         output.__enter__()
@@ -88,6 +88,15 @@ class AudioTests(unittest.TestCase):
             self.assertEqual((audio.getnchannels(), audio.getsampwidth(), audio.getframerate()), (1, 2, SAMPLE_RATE))
             self.assertEqual(audio.getnframes(), BLOCK_FRAMES * 2)
             self.assertEqual(audio.readframes(audio.getnframes()), b"\xe8\x03" * BLOCK_FRAMES * 2)
+
+    def test_zero_tail_stops_when_close_is_confirmed(self):
+        self.recorder.tail_seconds = 0
+        self.observe([True, False, False])
+        self.recorder.read_once()
+        self.observe([False, False, False], seq=2)
+        self.assertTrue(self.sources[0].closed)
+        self.assertEqual(self.metadata()["stop_reason"], "all_closed")
+        self.assertEqual(self.metadata()["tail_seconds"], 0)
 
     def test_reopen_during_tail_continues_same_recording(self):
         self.observe([True, False, False])
