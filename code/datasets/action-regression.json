@@ -1,6 +1,6 @@
 {
   "purpose": "Evaluation only. Never load this file in recognition or action inference.",
-  "ground_truth_source": "data/ans.md",
+  "ground_truth_source": "Manual annotations of the project's local sample videos; raw videos are not distributed.",
   "frozen_recognition_run": "improved",
   "mapping_note": "Candidate mappings are manual crop annotations tied to the frozen recognition run. ambiguous means mixed or duplicate crops; it cannot pass instance evaluation.",
   "cases": {

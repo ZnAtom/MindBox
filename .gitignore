@@ -1,4 +1,7 @@
 *.mp4
+!/show/演示视频1.mp4
+.DS_Store
+Thumbs.db
 .env
 .vscode
 .env.*
