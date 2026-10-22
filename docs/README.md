@@ -8,6 +8,9 @@ This directory keeps presentation and media files out of the repository root.
 | [`presentation/`](presentation/) | Mind Box hackathon presentation |
 
 - [Product demo](media/demo.mp4)
+- [Web interface demo](media/frontend-demo.gif)
+- [Hackathon event photo](media/hackathon-event.jpg)
+- [Team award photo](media/team-award.jpg)
 - [Cabinet reference photo](media/cabinet-photo.jpg)
 - [Hackathon presentation](presentation/MindBox.pptx)
 

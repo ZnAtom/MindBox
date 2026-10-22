@@ -26,6 +26,12 @@ Mind Box 仍处于原型阶段，完整硬件体验正在完善。识别结果�
 
 ## 演示与路演
 
+<a id="frontend-demo"></a>
+
+### 前端演示 / Web Interface Demo
+
+![Mind Box 前端交互演示 / Web interface walkthrough](docs/media/frontend-demo.gif)
+
 - [演示视频](docs/media/demo.mp4)
 - [项目路演 PPT](docs/presentation/MindBox.pptx)
 - [安装与运行说明](code/README.md)
@@ -98,6 +104,19 @@ python -m pytest -q
 
 感谢上海科技大学黑客松提供的创造与展示机会，感谢所有主办方，感谢上海联育孵化器提供比赛奖金。奖金将投入下一代产品研发。也感谢每一位观看演示、提出问题并帮助我们完善设想的朋友。
 
+<a id="hackathon-photos"></a>
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/media/hackathon-event.jpg" width="100%" alt="上海科技大学黑客松活动现场 / ShanghaiTech University Hackathon event"></td>
+    <td width="50%" align="center"><img src="docs/media/team-award.jpg" width="100%" alt="团队获得的二等奖及联育 DeepTech 奖 / Team's second prize and Lianyu DeepTech Award"></td>
+  </tr>
+  <tr>
+    <td align="center">黑客松活动现场<br>Hackathon Event</td>
+    <td align="center">二等奖与联育 DeepTech 奖<br>Second Prize &amp; Lianyu DeepTech Award</td>
+  </tr>
+</table>
+
 ---
 
 <a id="english"></a>
@@ -111,6 +130,8 @@ The project grew out of an imagined future of connected everyday life, where mul
 The prototype combines a K230 camera connection, a Python backend, image-based item and action analysis, SQLite inventory records, and a Vite web interface. Voice interaction supports inventory queries and reminders. An authenticated, read-only API is available for local personal-agent experiments. Third-party integrations, including Muse, have not yet been validated.
 
 ### Current state
+
+See the [web interface demo](#frontend-demo), [full demo video](docs/media/demo.mp4), and [product presentation](docs/presentation/MindBox.pptx).
 
 The current trigger relies on computer vision. ArUco markers help determine when a drawer opens or closes and delimit a storage session; image models analyze items and their movements. The complete workflow still needs further validation on a physical cabinet. Uncertain observations can be held for review instead of treated as confirmed inventory changes.
 
@@ -145,3 +166,5 @@ The project is released under the [MIT License](LICENSE). Third-party images, mo
 ### Acknowledgements
 
 Thank you to ShanghaiTech University Hackathon for giving us the opportunity to build and present this prototype, to all the organizers, and to Shanghai Lianyu Incubator (上海联育孵化器) for providing the competition prize. We will invest the prize in research and development for the next generation of Mind Box.
+
+See the [event and team award photos](#hackathon-photos) above.
