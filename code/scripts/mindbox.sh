@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # MindBox local service launcher for macOS/Linux.
 # restart/reset only replaces service processes; it never deletes user data.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/code/backend"
 DEVICE_DIR="$ROOT_DIR/code/device/k230"
 WEB_DIR="$ROOT_DIR/code/webui"

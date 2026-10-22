@@ -8,4 +8,4 @@
 | `cabinet-v1-split.glb` | Bang 拆分输出，10,000 个三角面、8 个网格；部件尚不适合直接驱动抽屉动画 |
 | `reference-*.webp` | 项目自有柜体视频的参考帧，经旋转校正、裁剪与背景遮罩处理 |
 
-主界面的参数化柜体由 `cabinet.js` 实现。模型生成工具见[建模说明](../../../modeling/README.md)。
+主界面的参数化柜体由 [`src/cabinet.js`](../../src/cabinet.js) 实现。模型生成工具见[建模说明](../../../modeling/README.md)。

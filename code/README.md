@@ -11,6 +11,7 @@
 | [webui](webui/README.md) | 库存管理、3D 柜体、摄像头与语音界面 |
 | [modeling](modeling/README.md) | 可选的柜体模型生成工具 |
 | [datasets](datasets/README.md) | 识别回归数据与标注模板 |
+| `scripts/` | Windows 与 macOS/Linux 本地服务启动脚本 |
 
 ## 启动
 
@@ -19,7 +20,7 @@
 Windows，在仓库根目录运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\code\scripts\mindbox.ps1 start
 ```
 
 默认本地服务：
@@ -31,7 +32,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 start
 | 后端 | http://127.0.0.1:8787 |
 | 只读 Agent API | http://127.0.0.1:8788 |
 
-脚本支持 `start`、`restart`、`stop`、`status`；`reset` 等同于重启服务，不清空数据。macOS/Linux 可在准备好对应虚拟环境后使用 `./code/mindbox.sh start`；其停止和重启命令会终止指定端口的监听进程，使用前需确认端口归属。
+脚本支持 `start`、`restart`、`stop`、`status`；`reset` 等同于重启服务，不清空数据。macOS/Linux 可在准备好对应虚拟环境后使用 `./code/scripts/mindbox.sh start`；其停止和重启命令会终止指定端口的监听进程，使用前需确认端口归属。
 
 ## 检查
 

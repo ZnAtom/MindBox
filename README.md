@@ -4,7 +4,7 @@
 
 **An ambient memory for the things you put away. Mind Box records items as they move in and out, so you can ask where something is when you need it.**
 
-[English](#english) · [演示视频](show/演示视频1.mp4) · [项目路演 PPT](MindBox.pptx) · [联系与交流](#contact)
+[English](#english) · [演示视频](docs/media/demo.mp4) · [项目路演 PPT](docs/presentation/MindBox.pptx) · [联系与交流](#contact)
 
 ## 项目设想
 
@@ -26,8 +26,8 @@ Mind Box 仍处于原型阶段，完整硬件体验正在完善。识别结果�
 
 ## 演示与路演
 
-- [演示视频](show/演示视频1.mp4)
-- [项目路演 PPT](MindBox.pptx)
+- [演示视频](docs/media/demo.mp4)
+- [项目路演 PPT](docs/presentation/MindBox.pptx)
 - [安装与运行说明](code/README.md)
 
 PPT 中展示的柜体界面和部分 3D 柜体画面属于项目原型素材；概念展示不等于下一代实体产品已经完成。
@@ -44,15 +44,22 @@ PPT 中展示的柜体界面和部分 3D 柜体画面属于项目原型素材；
 
 ```text
 .
+├── README.md          # 项目介绍、中英文说明与开发路线
+├── LICENSE            # MIT License
 ├── code/
 │   ├── backend/       # Python API、识别流程、SQLite、语音和 Agent API
 │   ├── device/k230/   # K230 板端脚本与电脑端摄像头桥接
+│   ├── scripts/       # 本地开发环境启动脚本
 │   ├── webui/         # Vite 前端、库存界面与 3D 模型预览
+│   │   └── src/       # 前端 JavaScript 和 CSS 源码
 │   ├── modeling/      # 柜体 3D 模型工作流与结果
 │   └── datasets/      # 回归数据与标注模板
-├── show/              # 项目演示视频
-└── MindBox.pptx        # 产品路演
+└── docs/              # 路演文稿、演示视频与项目图片
+    ├── media/
+    └── presentation/
 ```
+
+`data/` 是供本地实验使用的输入目录，原始视频受 `.gitignore` 规则保护，不应直接提交。
 
 ## 本地运行
 
@@ -61,7 +68,7 @@ PPT 中展示的柜体界面和部分 3D 柜体画面属于项目原型素材；
 在 Windows 项目根目录启动已配置好的本地开发环境：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\code\scripts\mindbox.ps1 start
 ```
 
 默认网页地址为 `http://127.0.0.1:5173/`。启动完整设备链路还需要配置 Python 和 Node.js 环境、模型 API 凭据，并让 VS Code CanMV 连接 K230 开发板。没有开发板时，可以单独运行网页查看界面。
@@ -85,7 +92,7 @@ python -m pytest -q
 
 欢迎对这个想法感兴趣的朋友随时来交流、讨论产品方向或参与下一步探索。可以通过 [GitHub Issues](https://github.com/ZnAtom/MindBox/issues) 留言；也欢迎提交改进建议或分享相关经验。
 
-目前仓库未提供 LICENSE 文件，尚未指定开源许可证。
+本项目以 [MIT License](LICENSE) 开源。仓库中的第三方图片、模型和其他素材可能受各自来源许可约束，使用前请查看对应的来源说明。
 
 ## 致谢
 
@@ -120,20 +127,20 @@ The current trigger relies on computer vision. ArUco markers help determine when
 See the [setup guide](code/README.md), [backend guide](code/backend/README.md), and [K230 device guide](code/device/k230/README.md) for environment setup and hardware details. On Windows, start the configured local services from the repository root with:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\code\mindbox.ps1 start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\code\scripts\mindbox.ps1 start
 ```
 
 The web interface is available at `http://127.0.0.1:5173/`. A full device workflow also requires configured Python and Node.js environments, model API credentials, and a K230 board connected through the CanMV VS Code extension. To build the web interface, run `npm install` and `npm run build` in `code/webui`. To run backend tests, run `python -m pytest -q` in `code/backend`.
 
 ### Project structure
 
-The `code/` directory contains the backend, device bridge, web interface, optional modeling tools, and regression data. Each component includes its own usage guide. `show/` contains the demo video, and `MindBox.pptx` is the product presentation.
+The `code/` directory contains the backend, device bridge, web interface (`webui/src/`), launcher scripts, optional modeling tools, and regression data. Each component includes its own usage guide. `docs/media/` contains project videos and images, and `docs/presentation/MindBox.pptx` is the product presentation. `data/` is reserved for local experiment inputs; raw videos are ignored by Git.
 
 ### Get in touch
 
 If the idea interests you, feel free to reach out to discuss the product, share feedback, or explore the next steps. You can start a conversation through [GitHub Issues](https://github.com/ZnAtom/MindBox/issues).
 
-The repository does not currently include a LICENSE file or specify an open-source license.
+The project is released under the [MIT License](LICENSE). Third-party images, models, and other assets may have separate terms; see their source notes before reuse.
 
 ### Acknowledgements
 

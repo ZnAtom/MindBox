@@ -6,10 +6,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$backendDir = Join-Path $PSScriptRoot 'backend'
-$deviceDir = Join-Path $PSScriptRoot 'device\k230'
-$webDir = Join-Path $PSScriptRoot 'webui'
+$codeRoot = Split-Path -Parent $PSScriptRoot
+$backendDir = Join-Path $codeRoot 'backend'
+$deviceDir = Join-Path $codeRoot 'device\k230'
+$webDir = Join-Path $codeRoot 'webui'
 $pythonExe = Join-Path $backendDir '.venv\Scripts\python.exe'
 $logDir = Join-Path $backendDir 'var\log'
 

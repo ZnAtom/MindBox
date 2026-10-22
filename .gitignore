@@ -1,5 +1,5 @@
 *.mp4
-!/show/演示视频1.mp4
+!/docs/media/demo.mp4
 .DS_Store
 Thumbs.db
 .env
