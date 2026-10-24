@@ -2,9 +2,7 @@
 
 **物品无感智能收纳。物品放取过程自动记录，想找物品时，询问即可定位。**
 
-**An ambient memory for the things you put away. Mind Box records items as they move in and out, so you can ask where something is when you need it.**
-
-[English](#english) · [演示视频](docs/media/demo.mp4) · [项目路演 PPT](docs/presentation/MindBox.pptx) · [联系与交流](#contact)
+[English version](README_en.md) · [演示视频](docs/media/demo.mp4) · [项目路演 PPT](docs/presentation/MindBox.pptx) · [联系与交流](#contact)
 
 ## 项目设想
 
@@ -28,9 +26,9 @@ Mind Box 仍处于原型阶段，完整硬件体验正在完善。识别结果�
 
 <a id="frontend-demo"></a>
 
-### 前端演示 / Web Interface Demo
+### 前端演示
 
-![Mind Box 前端交互演示 / Web interface walkthrough](docs/media/frontend-demo.gif)
+![Mind Box 前端交互演示](docs/media/frontend-demo.gif)
 
 - [演示视频](docs/media/demo.mp4)
 - [项目路演 PPT](docs/presentation/MindBox.pptx)
@@ -50,7 +48,8 @@ PPT 中展示的柜体界面和部分 3D 柜体画面属于项目原型素材；
 
 ```text
 .
-├── README.md          # 项目介绍、中英文说明与开发路线
+├── README.md          # 中文项目介绍、开发路线与运行说明
+├── README_en.md       # English project overview and development roadmap
 ├── LICENSE            # MIT License
 ├── code/
 │   ├── backend/       # Python API、识别流程、SQLite、语音和 Agent API
@@ -108,63 +107,11 @@ python -m pytest -q
 
 <table>
   <tr>
-    <td width="50%" align="center"><img src="docs/media/hackathon-event.jpg" width="100%" alt="上海科技大学黑客松活动现场 / ShanghaiTech University Hackathon event"></td>
-    <td width="50%" align="center"><img src="docs/media/team-award.jpg" width="100%" alt="团队获得的二等奖及联育 DeepTech 奖 / Team's second prize and Lianyu DeepTech Award"></td>
+    <td width="50%" align="center"><img src="docs/media/hackathon-event.jpg" width="100%" alt="上海科技大学黑客松活动现场"></td>
+    <td width="50%" align="center"><img src="docs/media/team-award.jpg" width="100%" alt="团队获得的二等奖及联育 DeepTech 奖"></td>
   </tr>
   <tr>
-    <td align="center">黑客松活动现场<br>Hackathon Event</td>
-    <td align="center">二等奖与联育 DeepTech 奖<br>Second Prize &amp; Lianyu DeepTech Award</td>
+    <td align="center">黑客松活动现场</td>
+    <td align="center">二等奖与联育 DeepTech 奖</td>
   </tr>
 </table>
-
----
-
-<a id="english"></a>
-
-## English
-
-Mind Box is a prototype for ambient, camera-based storage. It aims to record items as people put them into or take them out of drawers, link each record to a location, and help people find their belongings later. The broader idea is to spend less human attention maintaining an inventory and leave more room for the things people care about.
-
-The project grew out of an imagined future of connected everyday life, where multimodal AI can work with unfamiliar objects without a predefined catalog. Whether you enjoy organizing or struggle with it, we want storage to demand less of your attention. Let AI handle the tedious details, and leave emotion, creativity, and life to people.
-
-The prototype combines a K230 camera connection, a Python backend, image-based item and action analysis, SQLite inventory records, and a Vite web interface. Voice interaction supports inventory queries and reminders. An authenticated, read-only API is available for local personal-agent experiments. Third-party integrations, including Muse, have not yet been validated.
-
-### Current state
-
-See the [web interface demo](#frontend-demo), [full demo video](docs/media/demo.mp4), and [product presentation](docs/presentation/MindBox.pptx).
-
-The current trigger relies on computer vision. ArUco markers help determine when a drawer opens or closes and delimit a storage session; image models analyze items and their movements. The complete workflow still needs further validation on a physical cabinet. Uncertain observations can be held for review instead of treated as confirmed inventory changes.
-
-### Roadmap
-
-1. Improve item recognition, identity matching, and action detection with repeatable evaluation.
-2. Explore next-generation industrial design, including a possible camera mounted inside a drawer. This is a concept, not a finalized product.
-3. Improve the trigger design. The current workflow relies on image recognition to detect drawer activity; future work will evaluate more reliable ways to start and end capture.
-4. Continue improving the web interface, especially item lookup, recognition feedback, review tools, and mobile use.
-5. Validate the complete hardware workflow and test authorized personal-agent integrations.
-
-### Run locally
-
-See the [setup guide](code/README.md), [backend guide](code/backend/README.md), and [K230 device guide](code/device/k230/README.md) for environment setup and hardware details. On Windows, start the configured local services from the repository root with:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\code\scripts\mindbox.ps1 start
-```
-
-The web interface is available at `http://127.0.0.1:5173/`. A full device workflow also requires configured Python and Node.js environments, model API credentials, and a K230 board connected through the CanMV VS Code extension. To build the web interface, run `npm install` and `npm run build` in `code/webui`. To run backend tests, run `python -m pytest -q` in `code/backend`.
-
-### Project structure
-
-The `code/` directory contains the backend, device bridge, web interface (`webui/src/`), launcher scripts, optional modeling tools, and regression data. Each component includes its own usage guide. `docs/media/` contains project videos and images, and `docs/presentation/MindBox.pptx` is the product presentation. `data/` is reserved for local experiment inputs; raw videos are ignored by Git.
-
-### Get in touch
-
-If the idea interests you, feel free to reach out to discuss the product, share feedback, or explore the next steps. You can start a conversation through [GitHub Issues](https://github.com/ZnAtom/MindBox/issues).
-
-The project is released under the [MIT License](LICENSE). Third-party images, models, and other assets may have separate terms; see their source notes before reuse.
-
-### Acknowledgements
-
-Thank you to ShanghaiTech University Hackathon for giving us the opportunity to build and present this prototype, to all the organizers, and to Shanghai Lianyu Incubator (上海联育孵化器) for providing the competition prize. We will invest the prize in research and development for the next generation of Mind Box.
-
-See the [event and team award photos](#hackathon-photos) above.
